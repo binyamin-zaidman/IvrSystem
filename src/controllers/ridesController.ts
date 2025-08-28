@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { users } from "./usersController.js"; // שים לב ל-.js
+import { users } from "./usersController"; 
 
 export const startRide = (req: Request, res: Response) => {
   const { phoneNumber, lineNumber } = req.body as { phoneNumber?: string; lineNumber?: string | number };

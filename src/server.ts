@@ -2,8 +2,8 @@ import express from "express";
 import cors from "cors";
 import bodyParser from "body-parser";
 
-import usersRoutes from "./routes/users.js";
-import ridesRoutes from "./routes/rides.js";
+import usersRoutes from "./routes/users";
+import ridesRoutes from "./routes/rides";
 
 const app = express();
 
