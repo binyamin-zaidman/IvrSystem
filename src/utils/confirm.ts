@@ -5,3 +5,4 @@ export function generateConfirmationCode(): string {
 export function isConfirmationCodeValid(confirmationCode: string): boolean {
   return /^[0-9]{5}$/.test(confirmationCode); // 5 ספרות
 }
+

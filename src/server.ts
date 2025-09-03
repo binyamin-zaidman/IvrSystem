@@ -1,4 +1,5 @@
 import express from "express";
+import dotenv from "dotenv";
 import cors from "cors";
 import bodyParser from "body-parser";
 
@@ -6,6 +7,7 @@ import usersRoutes from "./routes/users";
 import ridesRoutes from "./routes/rides";
 
 const app = express();
+app.use(express.json());
 
 app.use(cors());
 app.use(bodyParser.json());
@@ -14,7 +16,7 @@ app.use(bodyParser.json());
 app.use("/users", usersRoutes);
 app.use("/rides", ridesRoutes);
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
