@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { startRide, getLastConfirmation } from "../controllers/ridesController.js";
+import { startRide, getLastConfirmation } from "../Controllers/ridesController";
 
 const router = Router();
 
