@@ -1,6 +1,8 @@
 import express from "express";
 import cors from "cors";
 import bodyParser from "body-parser";
+import * as dotenv from "dotenv";
+dotenv.config({ path: __dirname + "/.env" });
 
 import usersRoutes from "./routes/users";
 import ridesRoutes from "./routes/rides";

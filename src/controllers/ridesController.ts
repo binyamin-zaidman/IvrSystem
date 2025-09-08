@@ -1,122 +1,177 @@
-import { Request, Response } from 'express';
-import { pool } from '../config/db';
-import { generateConfirmationCode } from '../utils/confirm';
+import { Request, Response } from "express";
+import { supabase } from "../Config/Supabase";
+import { generateConfirmationCode } from "../Utils/Confirm";
 
 export async function startRide(req: Request, res: Response) {
-  const { phoneNumber, lineNumber, busCode, fromStopId, directionId } = req.body as {
-    phoneNumber?: string; lineNumber?: string | number; busCode?: string;
-    fromStopId?: string; directionId?: number;
+  console.log("-----Start ride request body-----");
+  const { phoneNumber, tripId, startStopId, endStopId } = req.body as {
+    phoneNumber?: string;
+    tripId?: string;
+    startStopId?: string;
+    endStopId?: string;
   };
-  if (!phoneNumber || !lineNumber) {
-    return res.status(400).json({ message: 'phoneNumber and lineNumber required' });
+
+  if (!phoneNumber || !tripId || !startStopId || !endStopId) {
+    return res
+      .status(400)
+      .json({
+        message: "phoneNumber, tripId, startStopId and endStopId are required"
+      });
   }
 
-  const u = await pool.query(`SELECT id FROM users WHERE phone_number=$1`, [phoneNumber]);
-  const user = u.rows[0];
-  if (!user) return res.status(404).json({ message: 'User not found' });
+  // בדיקת משתמש
+  const { data: users, error: userError } = await supabase
+    .from("users")
+    .select("id")
+    .eq("phone_number", phoneNumber)
+    .limit(1);
 
-  const code = generateConfirmationCode();
-  const expiresMins = 20;
+  if (userError) return res.status(500).json({ message: userError.message });
+  if (!users || users.length === 0)
+    return res.status(404).json({ message: "User not found" });
 
-  const ins = await pool.query(
-    `INSERT INTO rides (user_id, line_number, confirmation_code, bus_code, from_stop_id, direction_id, expires_at)
-     VALUES ($1,$2,$3,$4,$5,$6, NOW() + ($7 || ' minutes')::interval)
-     RETURNING id, confirmation_code AS "confirmationCode", start_time AS "startTime", expires_at AS "expiresAt"`,
-    [user.id, String(lineNumber), code, busCode ?? null, fromStopId ?? null, directionId ?? null, expiresMins]
-  );
+  const userId = users[0].id;
 
-  return res.json({ confirmationCode: ins.rows[0].confirmationCode, expiresAt: ins.rows[0].expiresAt });
+  // קוד אישור
+  const confirmationCode = generateConfirmationCode();
+
+  // שליפת trip info לטובת bus_code
+  const { data: trips, error: tripError } = await supabase
+    .from("trips")
+    .select("trip_id, route_id")
+    .eq("trip_id", tripId)
+    .limit(1);
+
+  if (tripError) return res.status(500).json({ message: tripError.message });
+  if (!trips || trips.length === 0)
+    return res.status(404).json({ message: "Trip not found" });
+
+  const busCode = trips[0].route_id; // כאן אנו מניחים שה־route_id הוא ה־bus_code
+  console.log({
+    userIdFromDb: userId,
+    typeOfUserId: typeof userId,
+    busCode: busCode,
+  });
+  // יצירת נסיעה
+  const { data: ride, error: rideError } = await supabase
+    .from("rides")
+    .insert({
+      user_id: users[0].id,
+      trip_id: tripId,
+      start_stop_id: startStopId,
+      end_stop_id: endStopId,
+      bus_code: busCode,
+      confirmation_code: confirmationCode,
+      start_time: new Date(),
+      end_time: null,
+      amount: null
+    })
+    .select("id, confirmation_code, start_time")
+    .single();
+
+  if (rideError) return res.status(500).json({ message: rideError.message });
+
+  return res.json({
+    confirmationCode: ride.confirmation_code,
+    startTime: ride.start_time
+  });
 }
 
 export async function getLastConfirmation(req: Request, res: Response) {
-  const phone = String(req.params.phone ?? '');
-  if (!phone) return res.status(400).json({ message: 'phone required' });
+  const phone = String(req.params.phone ?? "");
+  if (!phone) return res.status(400).json({ message: "phone required" });
 
-  const u = await pool.query(`SELECT id FROM users WHERE phone_number=$1`, [phone]);
-  const user = u.rows[0];
-  if (!user) return res.status(404).json({ message: 'User not found' });
+  const { data: users, error: userError } = await supabase
+    .from("users")
+    .select("id")
+    .eq("phone_number", phone)
+    .limit(1);
 
-  const r = await pool.query(
-    `SELECT confirmation_code AS "confirmationCode"
-     FROM rides
-     WHERE user_id=$1
-     ORDER BY start_time DESC
-     LIMIT 1`,
-    [user.id]
-  );
+  if (userError) return res.status(500).json({ message: userError.message });
+  if (!users || users.length === 0)
+    return res.status(404).json({ message: "User not found" });
 
-  if (r.rowCount === 0) return res.status(404).json({ message: 'No rides found' });
-  return res.json({ confirmationCode: r.rows[0].confirmationCode });
+  const userId = users[0].id;
+
+  const { data: rides, error: rideError } = await supabase
+    .from("rides")
+    .select("confirmation_code")
+    .eq("user_id", userId)
+    .order("start_time", { ascending: false })
+    .limit(1);
+
+  if (rideError) return res.status(500).json({ message: rideError.message });
+  if (!rides || rides.length === 0)
+    return res.status(404).json({ message: "No rides found" });
+
+  return res.json({ confirmationCode: rides[0].confirmation_code });
 }
 
 export async function validateCode(req: Request, res: Response) {
-  const { lineNumber, confirmationCode, busCode } = req.body as {
-    lineNumber?: string | number; confirmationCode?: string; busCode?: string;
+  const { tripId, confirmationCode, busCode } = req.body as {
+    tripId?: string;
+    confirmationCode?: string;
+    busCode?: string;
   };
-  if (!lineNumber || !confirmationCode) {
-    return res.status(400).json({ message: 'lineNumber and confirmationCode required' });
-  }
+  if (!tripId || !confirmationCode)
+    return res
+      .status(400)
+      .json({ message: "tripId and confirmationCode required" });
 
-  const q = await pool.query(
-    `SELECT id, expires_at, validated_at
-     FROM rides
-     WHERE line_number=$1 AND confirmation_code=$2
-       AND (expires_at IS NULL OR expires_at > NOW())
-       ${busCode ? 'AND (bus_code IS NULL OR bus_code=$3)' : ''}
-     ORDER BY start_time DESC
-     LIMIT 1`,
-    busCode ? [String(lineNumber), confirmationCode, busCode] : [String(lineNumber), confirmationCode]
-  );
+  let query = supabase
+    .from("rides")
+    .select("id, validated_at")
+    .eq("trip_id", tripId)
+    .eq("confirmation_code", confirmationCode)
+    .order("start_time", { ascending: false })
+    .limit(1);
 
-  if (q.rowCount === 0) return res.status(404).json({ message: 'Invalid or expired code' });
-  const ride = q.rows[0];
-  if (ride.validated_at) return res.status(409).json({ message: 'Code already validated' });
+  if (busCode) query = query.or(`bus_code.is.null,bus_code.eq.${busCode}`);
 
-  await pool.query(`UPDATE rides SET validated_at=NOW() WHERE id=$1`, [ride.id]);
+  const { data, error } = await query;
+  if (error) return res.status(500).json({ message: error.message });
+  if (!data || data.length === 0)
+    return res.status(404).json({ message: "Invalid or expired code" });
+
+  const ride = data[0];
+  if (ride.validated_at)
+    return res.status(409).json({ message: "Code already validated" });
+
+  const { error: updateError } = await supabase
+    .from("rides")
+    .update({ validated_at: new Date() })
+    .eq("id", ride.id);
+  if (updateError)
+    return res.status(500).json({ message: updateError.message });
+
   return res.json({ valid: true, rideId: ride.id });
 }
-export async function validRide(req: Request, res: Response) {
-  const { lineNumber, confirmationCode } = req.query as { lineNumber?: string; confirmationCode?: string };
-  if (!lineNumber || !confirmationCode) return res.status(400).json({ message: 'lineNumber and confirmationCode required' });
 
-  const q = await pool.query(
-    `SELECT id,
-            (expires_at IS NULL OR expires_at > NOW()) AS not_expired,
-            validated_at IS NULL AS not_validated
-     FROM rides
-     WHERE line_number=$1 AND confirmation_code=$2
-     ORDER BY start_time DESC
-     LIMIT 1`,
-    [lineNumber, confirmationCode]
-  );
-
-  if (q.rowCount === 0) return res.json({ valid: false, reason: 'not_found' });
-
-  const r = q.rows[0];
-  const valid = r.not_expired && r.not_validated;
-  return res.json({ valid, reason: valid ? 'ok' : (!r.not_expired ? 'expired' : 'already_validated') });
-}
 export async function listUserRides(req: Request, res: Response) {
-  const phone = String(req.params.phone ?? '');
-  if (!phone) return res.status(400).json({ message: 'phone required' });
+  const phone = String(req.params.phone ?? "");
+  if (!phone) return res.status(400).json({ message: "phone required" });
 
-  const u = await pool.query(`SELECT id FROM users WHERE phone_number=$1`, [phone]);
-  const user = u.rows[0];
-  if (!user) return res.status(404).json({ message: 'User not found' });
+  const { data: users, error: userError } = await supabase
+    .from("users")
+    .select("id")
+    .eq("phone_number", phone)
+    .limit(1);
 
-  const rides = await pool.query(
-    `SELECT id, line_number AS "lineNumber",
-            start_time AS "startTime", end_time AS "endTime",
-            confirmation_code AS "confirmationCode",
-            validated_at AS "validatedAt",
-            km_traveled AS "km", fare_agorot AS "fareAgorot",
-            from_stop_id AS "fromStopId", to_stop_id AS "toStopId"
-     FROM rides
-     WHERE user_id=$1
-     ORDER BY start_time DESC`,
-    [user.id]
-  );
+  if (userError) return res.status(500).json({ message: userError.message });
+  if (!users || users.length === 0)
+    return res.status(404).json({ message: "User not found" });
 
-  return res.json({ rides: rides.rows });
+  const userId = users[0].id;
+
+  const { data: rides, error: ridesError } = await supabase
+    .from("rides")
+    .select(
+      "id, trip_id, start_stop_id, end_stop_id, start_time, end_time, confirmation_code, validated_at, bus_code"
+    )
+    .eq("user_id", userId)
+    .order("start_time", { ascending: false });
+
+  if (ridesError) return res.status(500).json({ message: ridesError.message });
+
+  return res.json({ rides });
 }
-
