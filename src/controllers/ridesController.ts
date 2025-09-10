@@ -1,6 +1,20 @@
 import { Request, Response } from "express";
 import { supabase } from "../Config/Supabase";
 import { generateConfirmationCode } from "../Utils/Confirm";
+import * as busService from "../Services/busService";
+
+
+export async function getLineBusInfo(req: Request, res: Response) {
+  const lineBusInfo = req.body.lineBusInfo as string;
+  if (!lineBusInfo) return res.status(400).json({ message: "lineBusInfo is required" });
+
+  try {
+    const busInfo = await busService.getBusInfoWithDirections(lineBusInfo);
+    return res.json(busInfo);
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+}
 
 export async function startRide(req: Request, res: Response) {
   console.log("-----Start ride request body-----");

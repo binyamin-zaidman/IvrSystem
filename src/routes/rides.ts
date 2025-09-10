@@ -2,7 +2,9 @@ import { Router } from "express";
 import {
   startRide,
   getLastConfirmation,
-} from "../Controllers/ridesController";
+  getLineBusInfo,
+} 
+from "../controllers/ridesController";
 // import {
 //   askRoute,
 //   askDirection,
@@ -12,6 +14,7 @@ import {
 
 const router = Router();
 
+router.post("/lineBusInfo", getLineBusInfo);
 // התחלת נסיעה רגילה
 router.post("/start", startRide);
 
