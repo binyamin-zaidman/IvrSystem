@@ -1,22 +1,29 @@
 import express from "express";
-import cors from "cors";
 import bodyParser from "body-parser";
-import * as dotenv from "dotenv";
-dotenv.config({ path: __dirname + "/.env" });
 
-import usersRoutes from "./routes/users";
-import ridesRoutes from "./routes/rides";
+import authRoutes from "./Routes/Api/auth";
+import userRoutes from "./Routes/Api/users";
+import tripRoutes from "./Routes/Api/trips";
+import paymentRoutes from "./Routes/Api/payments";
+import gtfsRoutes from "./Routes/Api/gtfs";
+import ivrWebhook from "./Routes/Ivr/webhook";
 
 const app = express();
-
-app.use(cors());
 app.use(bodyParser.json());
 
-// Routes
-app.use("/users", usersRoutes);
-app.use("/rides", ridesRoutes);
+// API routes
+app.use("/api/auth", authRoutes);
+app.use("/api/users", userRoutes);
+app.use("/api/trips", tripRoutes);
+app.use("/api/payments", paymentRoutes);
+app.use("/api/gtfs", gtfsRoutes);
 
-const PORT = 3000;
+// IVR routes
+app.use("/ivr/webhook", ivrWebhook);
+
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+  console.log(`🚍 Server running on port ${PORT}`);
 });
+
+
