@@ -1,5 +1,7 @@
 import express from "express";
 import bodyParser from "body-parser";
+import * as dotenv from "dotenv";
+dotenv.config({ path: __dirname + "/.env" });
 
 import authRoutes from "./Routes/Api/auth";
 import userRoutes from "./Routes/Api/users";
