@@ -1,5 +1,5 @@
 import { supabase } from "../Config/Supabase";
-import { TripDirection, StopTimeRow } from "../Models/GTFS";
+import { Trip, StopTimeRow, StopData, DirectionResult } from "../Models/GTFS";
 
 export class GTFSService {
   static async getLineBusAgencies(lineBusInfo: string) {
@@ -23,115 +23,259 @@ export class GTFSService {
     return agencies || [];
   }
 
-static async getDirectionsByAgency(lineBusInfo: string, agencyId: string) {
-  // שליפת route_id
-  const { data: routes, error: routeError } = await supabase
-    .from("routes")
-    .select("route_id")
-    .eq("route_short_name", lineBusInfo)
-    .eq("agency_id", agencyId);
+  // static async getDirectionsByAgency(
+  //   lineBusInfo: string,
+  //   agencyId: string
+  // ): Promise<DirectionResult[]> {
+  //   try {
+  //     console.log(`Attempting to get directions for line: ${lineBusInfo}, agency: ${agencyId}`);
 
-  if (routeError) throw new Error(routeError.message);
-  if (!routes?.length) return [];
+  //     if (!supabase) {
+  //       throw new Error('Supabase client not initialized');
+  //     }
 
-  const routeIds = routes.map(r => r.route_id);
+  //     // 1️⃣ קבלת כל ה-routes שמתאימים למספר הקו והחברה
+  //     const { data: routeData, error: routeError } = await supabase
+  //       .from('routes')
+  //       .select('route_id, route_short_name, route_long_name, agency_id')
+  //       .eq('route_short_name', lineBusInfo)
+  //       .eq('agency_id', agencyId);
 
-  // שליפת trips כולל headsign
-  const { data: trips, error: tripsError } = await supabase
-    .from("trips")
-    .select("trip_id, direction_id, trip_headsign")
-    .in("route_id", routeIds);
+  //     if (routeError) throw new Error(`Route query error: ${routeError.message}`);
+  //     if (!routeData || routeData.length === 0) return [];
 
-  if (tripsError) throw new Error(tripsError.message);
-  if (!trips?.length) return [];
+  //     const directionMap = new Map<number, any>();
 
-  const tripIds = trips.map(t => t.trip_id);
+  //     // 2️⃣ מעבר על כל ה-routes כדי למצוא את כל ה-trips שלהם
+  //     for (const route of routeData) {
+  //       const { data: tripData, error: tripError } = await supabase
+  //         .from('trips')
+  //         .select('trip_id, direction_id, trip_headsign, route_id')
+  //         .eq('route_id', route.route_id);
 
-  // שליפת stop_times
-  const { data: stopTimes, error: stopTimesError } = await supabase
-    .from("stop_times")
-    .select("trip_id, stop_sequence, stop_id")
-    .in("trip_id", tripIds);
+  //       if (tripError) {
+  //         console.error(`Error fetching trips for route ${route.route_id}:`, tripError);
+  //         continue;
+  //       }
+  //       if (!tripData || tripData.length === 0) continue;
 
-  if (stopTimesError) throw new Error(stopTimesError.message);
-  if (!stopTimes?.length) return [];
+  //       // 3️⃣ מעבר על כל ה-trips לבניית ה-directions
+  //       for (const trip of tripData) {
+  //         if (!directionMap.has(trip.direction_id)) {
+  //           const { data: stopTimes, error: stopError } = await supabase
+  //             .from('stop_times')
+  //             .select(`
+  //               stop_sequence,
+  //               stops (
+  //                 stop_code,
+  //                 stop_name,
+  //                 stop_lat,
+  //                 stop_lon
+  //               )
+  //             `)
+  //             .eq('trip_id', trip.trip_id)
+  //             .order('stop_sequence', { ascending: true });
 
-  // שליפת stops (שמות תחנות)
-  const stopIds = [...new Set(stopTimes.map(st => st.stop_id))];
-  const { data: stops, error: stopsError } = await supabase
-    .from("stops")
-    .select("stop_id, stop_name")
-    .in("stop_id", stopIds);
+  //           if (stopError) {
+  //             console.error(`Error fetching stop times for trip ${trip.trip_id}:`, stopError);
+  //             continue;
+  //           }
+  //           if (!stopTimes || stopTimes.length === 0) continue;
 
-  if (stopsError) throw new Error(stopsError.message);
+  //           const firstStop = stopTimes[0].stops;
+  //           const lastStop = stopTimes[stopTimes.length - 1].stops;
 
-  const stopIdToName = new Map<string, string>(
-    (stops || []).map(s => [s.stop_id, s.stop_name])
-  );
+  //           directionMap.set(trip.direction_id, {
+  //             direction_id: trip.direction_id,
+  //             trip_headsign: trip.trip_headsign,
+  //             first_stop: firstStop,
+  //             last_stop: lastStop,
+  //             trip_count: 1,
+  //             route_long_name: route.route_long_name
+  //           });
+  //         } else {
+  //           // עדכון מספר הנסיעות אם הכיוון כבר קיים
+  //           const existing = directionMap.get(trip.direction_id);
+  //           existing.trip_count++;
+  //         }
+  //       }
+  //     }
 
-  // קיבוץ stop_times לפי trip
-  const stopTimesByTrip = new Map<string, typeof stopTimes>();
-  for (const st of stopTimes) {
-    if (!stopTimesByTrip.has(st.trip_id)) stopTimesByTrip.set(st.trip_id, []);
-    stopTimesByTrip.get(st.trip_id)!.push(st);
-  }
+  //     // 4️⃣ המרת המפה למערך DirectionResult
+  //     const directions: DirectionResult[] = Array.from(directionMap.values()).map(dir => ({
+  //       direction_id: dir.direction_id,
+  //       direction_name: dir.trip_headsign || `${dir.first_stop?.stop_name} → ${dir.last_stop?.stop_name}`,
+  //       first_stop: dir.first_stop ? {
+  //         name: dir.first_stop.stop_name,
+  //         stop_code: dir.first_stop.stop_code,
+  //         coordinates: {
+  //           lat: parseFloat(dir.first_stop.stop_lat),
+  //           lon: parseFloat(dir.first_stop.stop_lon)
+  //         },
+  //         frequency: dir.trip_count,
+  //         reliability_percentage: "100",
+  //         description: ""
+  //       } : null,
+  //       last_stop: dir.last_stop ? {
+  //         name: dir.last_stop.stop_name,
+  //         stop_code: dir.last_stop.stop_code,
+  //         coordinates: {
+  //           lat: parseFloat(dir.last_stop.stop_lat),
+  //           lon: parseFloat(dir.last_stop.stop_lon)
+  //         },
+  //         frequency: dir.trip_count,
+  //         reliability_percentage: "100",
+  //         description: ""
+  //       } : null,
+  //       total_trips: dir.trip_count,
+  //       route_long_name: dir.route_long_name || "",
+  //       route_description: "",
+  //       alternative_headsigns: [],
+  //       common_patterns: ["simple"]
+  //     }));
 
-  // מבני נתונים לסטטיסטיקה
-  const firstStopFrequency = new Map<number, Map<string, number>>();
-  const lastStopFrequency = new Map<number, Map<string, number>>();
+  //     console.log(`Successfully processed ${directions.length} directions for line ${lineBusInfo}`);
+  //     return directions;
 
-  for (const trip of trips) {
-    const stopsForTrip = stopTimesByTrip.get(trip.trip_id) || [];
-    if (!stopsForTrip.length) continue;
+  //   } catch (error) {
+  //     console.error(`Error in getDirectionsByAgency for line ${lineBusInfo}, agency ${agencyId}:`, error);
+  //     throw error;
+  //   }
+  // }
+  static async getDirectionsByAgency(
+    lineBusInfo: string,
+    agencyId: string
+  ): Promise<DirectionResult[]> {
+    try {
+      console.log(
+        `Fetching directions for line ${lineBusInfo}, agency ${agencyId}`
+      );
 
-    // מיון מקומי לפי sequence
-    stopsForTrip.sort((a, b) => a.stop_sequence - b.stop_sequence);
+      if (!supabase) throw new Error("Supabase client not initialized");
 
-    const firstStopId = stopsForTrip[0].stop_id;
-    const lastStopId = stopsForTrip[stopsForTrip.length - 1].stop_id;
+      // קבלת כל המסלולים של הקו מהחברה
+      const { data: routeData, error: routeError } = await supabase
+        .from("routes")
+        .select("route_id, route_short_name, route_long_name")
+        .eq("route_short_name", lineBusInfo)
+        .eq("agency_id", agencyId);
 
-    const firstStopName = stopIdToName.get(firstStopId) || "";
-    const lastStopName = stopIdToName.get(lastStopId) || "";
+      if (routeError)
+        throw new Error(`Route query error: ${routeError.message}`);
+      if (!routeData || routeData.length === 0) return [];
 
-    // עדכון frequency
-    if (!firstStopFrequency.has(trip.direction_id)) {
-      firstStopFrequency.set(trip.direction_id, new Map());
-      lastStopFrequency.set(trip.direction_id, new Map());
+      const routeIds = routeData.map((r) => r.route_id);
+
+      // קבלת כל הטיולים של כל המסלולים
+      const { data: tripData, error: tripError } = await supabase
+        .from("trips")
+        .select("trip_id, direction_id, trip_headsign, route_id")
+        .in("route_id", routeIds);
+
+      if (tripError) throw new Error(`Trip query error: ${tripError.message}`);
+      if (!tripData || tripData.length === 0) return [];
+
+      // Map לפי direction_id
+      const directionMap = new Map<number, any>();
+
+      // יוצרים array של promises עבור כל trip
+      const promises = tripData.map(async (trip) => {
+        if (!directionMap.has(trip.direction_id)) {
+          const { data: stopTimes, error: stopError } = await supabase
+            .from("stop_times")
+            .select(
+              `
+            stop_sequence,
+            stops (
+              stop_code,
+              stop_name,
+              stop_lat,
+              stop_lon
+            )
+          `
+            )
+            .eq("trip_id", trip.trip_id)
+            .order("stop_sequence", { ascending: true });
+
+          if (stopError || !stopTimes || stopTimes.length === 0) return;
+
+          const firstStop = stopTimes[0].stops;
+          const lastStop = stopTimes[stopTimes.length - 1].stops;
+
+          directionMap.set(trip.direction_id, {
+            direction_id: trip.direction_id,
+            trip_headsign: trip.trip_headsign,
+            first_stop: firstStop,
+            last_stop: lastStop,
+            trip_count: 1,
+            route_long_name:
+              routeData.find((r) => r.route_id === trip.route_id)
+                ?.route_long_name || ""
+          });
+        } else {
+          const existing = directionMap.get(trip.direction_id);
+          existing.trip_count++;
+        }
+      });
+
+      // מחכים שכל ה-promises ירוצו במקביל
+      await Promise.all(promises);
+
+      // המרה ל- DirectionResult[]
+      const directions: DirectionResult[] = Array.from(
+        directionMap.values()
+      ).map((dir) => ({
+        direction_id: dir.direction_id,
+        direction_name:
+          dir.trip_headsign ||
+          `${dir.first_stop?.stop_name} → ${dir.last_stop?.stop_name}`,
+
+        first_stop: dir.first_stop
+          ? {
+              name: dir.first_stop.stop_name,
+              stop_code: dir.first_stop.stop_code,
+              coordinates: {
+                lat: parseFloat(dir.first_stop.stop_lat),
+                lon: parseFloat(dir.first_stop.stop_lon)
+              },
+              frequency: dir.trip_count,
+              reliability_percentage: "100",
+              description: ""
+            }
+          : null,
+
+        last_stop: dir.last_stop
+          ? {
+              name: dir.last_stop.stop_name,
+              stop_code: dir.last_stop.stop_code,
+              coordinates: {
+                lat: parseFloat(dir.last_stop.stop_lat),
+                lon: parseFloat(dir.last_stop.stop_lon)
+              },
+              frequency: dir.trip_count,
+              reliability_percentage: "100",
+              description: ""
+            }
+          : null,
+
+        total_trips: dir.trip_count,
+        route_long_name: dir.route_long_name,
+        route_description: "",
+        alternative_headsigns: [],
+        common_patterns: ["simple"]
+      }));
+
+      console.log(
+        `Found ${directions.length} directions for line ${lineBusInfo}`
+      );
+      return directions;
+    } catch (error) {
+      console.error(
+        `Error fetching directions for line ${lineBusInfo}:`,
+        error
+      );
+      throw error;
     }
-
-    const firstMap = firstStopFrequency.get(trip.direction_id)!;
-    const lastMap = lastStopFrequency.get(trip.direction_id)!;
-
-    firstMap.set(firstStopName, (firstMap.get(firstStopName) || 0) + 1);
-    lastMap.set(lastStopName, (lastMap.get(lastStopName) || 0) + 1);
   }
-
-  // יצירת תוצאה
-  const directions = Array.from(firstStopFrequency.keys()).map(directionId => {
-    const firstMap = firstStopFrequency.get(directionId)!;
-    const lastMap = lastStopFrequency.get(directionId)!;
-
-    const mostCommonFirst = [...firstMap.entries()]
-      .reduce((a, b) => (a[1] > b[1] ? a : b))[0];
-
-    const mostCommonLast = [...lastMap.entries()]
-      .reduce((a, b) => (a[1] > b[1] ? a : b))[0];
-
-    const sampleTrip = trips.find(t => t.direction_id === directionId);
-
-    return {
-      direction_id: directionId,
-      trip_id: sampleTrip?.trip_id || "",
-      first_stop: mostCommonFirst,
-      last_stop: mostCommonLast,
-      headsign: sampleTrip?.trip_headsign || null, // אופציונלי
-      debug_info: {
-        total_trips: [...firstMap.values()].reduce((a, b) => a + b, 0),
-      }
-    };
-  });
-
-  return directions.sort((a, b) => a.direction_id - b.direction_id);
 }
-
-}
+// טיפוסים נדרשים

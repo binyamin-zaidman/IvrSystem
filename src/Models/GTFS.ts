@@ -1,9 +1,30 @@
 import { Stop} from "./Stop";
 export interface DirectionResult {
-  trip_id: string;
   direction_id: number;
-  first_stop: string;
-  last_stop: string;
+  direction_name: string;
+  first_stop: {
+    name: string;
+    stop_code: string;
+    coordinates: { lat: number; lon: number };
+    frequency: number;
+    reliability_percentage: string;
+    description: string;
+  } | null;
+  last_stop: {
+    name: string;
+    stop_code: string;
+    coordinates: { lat: number; lon: number };
+    frequency: number;
+    reliability_percentage: string;
+    description: string;
+  } | null;
+  total_trips: number;
+  route_long_name: string;
+  route_description: string;
+  alternative_headsigns: string[];
+  common_patterns: string[];
+
+ 
 }
 
 export interface StopTimeRow {
@@ -22,11 +43,25 @@ interface Route {
   route_id: string;
   route_long_name: string;
 }
+export interface StopData {
+  stop_sequence: number;
+  stop_id: string;
+  stop_name: string;
+  stop_lat: number;
+  stop_lon: number;
+  stop_desc: string;
+  arrival_time: string;
+  departure_time: string;
+  location_type: number;
+  count: number;
+}
 
-interface Trip {
+
+export interface  Trip {
   trip_id: string;
   direction_id: number;
   trip_headsign: string;
+  service_id: string;
 }
 
 interface DirectionInfo {
@@ -47,3 +82,4 @@ interface BusLineActivity {
   route_long_name: string;
   question_type: 'ask_direction_only' | 'ask_city_then_direction';
 }
+
