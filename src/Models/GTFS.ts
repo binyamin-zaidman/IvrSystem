@@ -1,27 +1,30 @@
 import { Stop} from "./Stop";
-export interface DirectionResult {
-  direction_id: number;
-  direction_name: string;
-  city: string;
-  first_stop: {
-    name: string;
-    stop_code: string;
-    coordinates: { lat: number; lon: number };
-  };
-  last_stop: {
-    name: string;
-    stop_code: string;
-    coordinates: { lat: number; lon: number };
-  };
-  total_trips: number;
-  route_long_name: string;
-}
 export interface StopInfo {
   stop_code: string;
   stop_name: string;
   stop_lat: number;
   stop_lon: number;
 }
+
+export interface DirectionResult {
+  direction_id: number;
+  direction_name: string;
+  first_stop: {
+    name: string;
+    stop_code: string;
+    coordinates: { lat: number; lon: number };
+  } | null;
+  last_stop: {
+    name: string;
+    stop_code: string;
+    coordinates: { lat: number; lon: number };
+  } | null;
+  total_trips: number;
+  route_long_name: string;
+  cities: string[];
+}
+
+
 export interface StopTimeRow {
   trip_id: string;
   stop_sequence: number;
