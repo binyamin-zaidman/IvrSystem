@@ -38,69 +38,68 @@ export class GTFSService {
     }
   }
 
-static async getDirectionsByAgency(
-  lineBusInfo: string,
-  agencyId: string
-): Promise<DirectionResult[]> {
-  try {
-    console.log(
-      `Getting directions for line: ${lineBusInfo}, agency: ${agencyId}`
-    );
+  static async getDirectionsByAgency(
+    lineBusInfo: string,
+    agencyId: string
+  ): Promise<DirectionResult[]> {
+    try {
+      console.log(
+        `Getting directions for line: ${lineBusInfo}, agency: ${agencyId}`
+      );
 
-    if (!supabase) {
-      throw new Error("Supabase client not initialized");
-    }
+      if (!supabase) {
+        throw new Error("Supabase client not initialized");
+      }
 
-    // Get all routes for the line and agency
-    const { data: routeData, error: routeError } = await supabase
-      .from("routes")
-      .select("route_id, route_short_name, route_long_name, agency_id")
-      .eq("route_short_name", lineBusInfo)
-      .eq("agency_id", agencyId);
+      // Get all routes for the line and agency
+      const { data: routeData, error: routeError } = await supabase
+        .from("routes")
+        .select("route_id, route_short_name, route_long_name, agency_id")
+        .eq("route_short_name", lineBusInfo)
+        .eq("agency_id", agencyId);
 
-    if (routeError)
-      throw new Error(`Route query error: ${routeError.message}`);
-    if (!routeData || routeData.length === 0) return [];
+      if (routeError)
+        throw new Error(`Route query error: ${routeError.message}`);
+      if (!routeData || routeData.length === 0) return [];
 
-    console.log(`Found ${routeData.length} routes for line ${lineBusInfo}`);
-
-    // Process each route separately to avoid mixing different lines
-    const allDirections: DirectionResult[] = [];
-
-    for (const route of routeData) {
-      console.log(`Processing route: ${route.route_long_name}`);
-      
-      // Get trips only for this specific route
+      // Get all trips for these routes in a single query
+      const routeIds = routeData.map((route) => route.route_id);
       const { data: tripData, error: tripError } = await supabase
         .from("trips")
-        .select("trip_id, direction_id, trip_headsign")
-        .eq("route_id", route.route_id);
+        .select("trip_id, direction_id, trip_headsign, route_id")
+        .in("route_id", routeIds);
 
-      if (tripError) {
-        console.error(`Trips query error for route ${route.route_id}:`, tripError.message);
-        continue;
-      }
-      if (!tripData || tripData.length === 0) {
-        console.log(`No trips found for route ${route.route_id}`);
-        continue;
-      }
+      if (tripError) throw new Error(`Trips query error: ${tripError.message}`);
+      if (!tripData || tripData.length === 0) return [];
 
-      // Group trips by direction_id for this specific route
-      const directionGroups = new Map<number, typeof tripData>();
+      // Group trips by direction_id and get representative trips
+      const directionGroups = new Map<
+        number,
+        {
+          trips: typeof tripData;
+          route_long_name: string;
+        }
+      >();
 
       tripData.forEach((trip) => {
+        const route = routeData.find((r) => r.route_id === trip.route_id);
+        if (!route) return;
+
         if (!directionGroups.has(trip.direction_id)) {
-          directionGroups.set(trip.direction_id, []);
+          directionGroups.set(trip.direction_id, {
+            trips: [],
+            route_long_name: route.route_long_name
+          });
         }
-        directionGroups.get(trip.direction_id)!.push(trip);
+        directionGroups.get(trip.direction_id)!.trips.push(trip);
       });
 
-      // Process each direction for this route
-      for (const [directionId, trips] of directionGroups) {
-        console.log(`Processing direction ${directionId} with ${trips.length} trips`);
-        
+      // Process each direction
+      const directions: DirectionResult[] = [];
+
+      for (const [directionId, group] of directionGroups) {
         // Use the first trip as representative for getting stop times
-        const representativeTrip = trips[0];
+        const representativeTrip = group.trips[0];
 
         const { data: stopTimes, error: stopError } = await supabase
           .from("stop_times")
@@ -125,15 +124,12 @@ static async getDirectionsByAgency(
           );
           continue;
         }
-        if (!stopTimes || stopTimes.length === 0) {
-          console.log(`No stops found for trip ${representativeTrip.trip_id}`);
-          continue;
-        }
+        if (!stopTimes || stopTimes.length === 0) continue;
 
         const firstStop = stopTimes[0].stops;
         const lastStop = stopTimes[stopTimes.length - 1].stops;
 
-        // Create direction result with route-specific data
+        // Create direction result
         const direction: DirectionResult = {
           direction_id: directionId,
           direction_name: this.getDirectionName(
@@ -141,39 +137,123 @@ static async getDirectionsByAgency(
             firstStop,
             lastStop
           ),
-          first_stop: this.createStopInfo(firstStop, trips.length),
-          last_stop: this.createStopInfo(lastStop, trips.length),
-          total_trips: trips.length,
-          route_long_name: route.route_long_name || "",
-          route_description: `Route ID: ${route.route_id}`,
-          // Only headsigns from this specific route
-          alternative_headsigns: this.getAlternativeHeadsigns(trips),
+          first_stop: this.createStopInfo(firstStop, group.trips.length),
+          last_stop: this.createStopInfo(lastStop, group.trips.length),
+          total_trips: group.trips.length,
+          route_long_name: group.route_long_name || "",
+          route_description: "",
+          alternative_headsigns: this.getAlternativeHeadsigns(group.trips),
           common_patterns: ["simple"]
         };
 
-        allDirections.push(direction);
+        directions.push(direction);
       }
+
+      console.log(
+        `Successfully processed ${directions.length} directions for line ${lineBusInfo}`
+      );
+      return directions;
+    } catch (error) {
+      console.error(
+        `Error in getDirectionsByAgency for line ${lineBusInfo}, agency ${agencyId}:`,
+        error
+      );
+      throw error;
+    }
+  }
+
+  private static getDirectionName(
+    tripHeadsign: string | null,
+    firstStop: any,
+    lastStop: any
+  ): string {
+    if (tripHeadsign && tripHeadsign.trim()) {
+      return tripHeadsign;
     }
 
-    console.log(
-      `Successfully processed ${allDirections.length} directions for line ${lineBusInfo}`
-    );
-    
-    // Sort by route_long_name and then direction_id for consistent ordering
-    allDirections.sort((a, b) => {
-      const routeCompare = a.route_long_name.localeCompare(b.route_long_name);
-      if (routeCompare !== 0) return routeCompare;
-      return a.direction_id - b.direction_id;
+    if (firstStop?.stop_name && lastStop?.stop_name) {
+      return `${firstStop.stop_name} → ${lastStop.stop_name}`;
+    }
+
+    return "Unknown Direction";
+  }
+
+  private static createStopInfo(stop: any, tripCount: number): StopInfo | null {
+    if (!stop) return null;
+
+    return {
+      name: stop.stop_name || "Unknown Stop",
+      stop_code: stop.stop_code || "",
+      coordinates: {
+        lat: parseFloat(stop.stop_lat) || 0,
+        lon: parseFloat(stop.stop_lon) || 0
+      },
+      frequency: tripCount,
+      reliability_percentage: "100",
+      description: ""
+    };
+  }
+
+  private static getAlternativeHeadsigns(trips: any[]): string[] {
+    const headsigns = new Set<string>();
+
+    trips.forEach((trip) => {
+      if (trip.trip_headsign && trip.trip_headsign.trim()) {
+        headsigns.add(trip.trip_headsign);
+      }
     });
 
-    return allDirections;
-
-  } catch (error) {
-    console.error(
-      `Error in getDirectionsByAgency for line ${lineBusInfo}, agency ${agencyId}:`,
-      error
-    );
-    throw error;
+    return Array.from(headsigns);
   }
-}
+
+  private static extractCitiesFromStops(stops: any[]): string[] {
+    // Basic implementation - you might want to enhance this based on your data structure
+    const cities = new Set<string>();
+
+    stops.forEach((stop) => {
+      if (stop?.stop_name) {
+        // Extract city name from stop name if it follows a pattern like "Stop Name, City"
+        const parts = stop.stop_name.split(",");
+        if (parts.length > 1) {
+          const city = parts[parts.length - 1].trim();
+          if (city) cities.add(city);
+        }
+      }
+    });
+
+    return Array.from(cities);
+  }
+
+  // Additional utility method for batch processing multiple lines
+  static async getMultipleDirections(
+    lineAgencyPairs: Array<{ line: string; agencyId: string }>
+  ): Promise<Map<string, DirectionResult[]>> {
+    const results = new Map<string, DirectionResult[]>();
+
+    // Process in batches to avoid overwhelming the database
+    const batchSize = 5;
+    for (let i = 0; i < lineAgencyPairs.length; i += batchSize) {
+      const batch = lineAgencyPairs.slice(i, i + batchSize);
+
+      const promises = batch.map(async ({ line, agencyId }) => {
+        try {
+          const directions = await this.getDirectionsByAgency(line, agencyId);
+          return { key: `${line}-${agencyId}`, directions };
+        } catch (error) {
+          console.error(
+            `Error processing line ${line}, agency ${agencyId}:`,
+            error
+          );
+          return { key: `${line}-${agencyId}`, directions: [] };
+        }
+      });
+
+      const batchResults = await Promise.all(promises);
+      batchResults.forEach(({ key, directions }) => {
+        results.set(key, directions);
+      });
+    }
+
+    return results;
+  }
 }
