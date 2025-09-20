@@ -4,7 +4,8 @@ import {
   StopTimeRow,
   StopData,
   StopInfo,
-  DirectionResult
+  DirectionResult,
+  StopForTrip
 } from "../Models/GTFS";
 
 export class GTFSService {
@@ -245,8 +246,8 @@ private static createStopInfo(stop: any, tripCount: number): StopInfo | null {
     name: stop.stop_name || "Unknown Stop",
     stop_code: stop.stop_code || "",
     coordinates: {
-      lat: parseFloat(stop.stop_lat) || 0,
-      lon: parseFloat(stop.stop_lon) || 0
+      lat: stop.stop_lat || 0,
+      lon: stop.stop_lon || 0
     },
     frequency: tripCount,
     reliability_percentage: "100", // Can be calculated based on actual data consistency
@@ -264,4 +265,85 @@ private static getAlternativeHeadsigns(trips: any[]): string[] {
   });
 
   return Array.from(headsigns).sort();
-}}
+}
+  static async getStopsForRoute(
+    routeId: string,
+    directionId: number,
+    agencyId: string
+  ): Promise<StopForTrip[]> {
+    try {
+      console.log(
+        `Getting stops for route: ${routeId}, direction: ${directionId}`
+      );
+
+      if (!supabase) {
+        throw new Error("Supabase client not initialized");
+      }
+
+      // קבלת טיול מייצג לקו והכיוון הספציפיים
+      const { data: tripData, error: tripError } = await supabase
+        .from("trips")
+        .select("trip_id")
+        .eq("route_id", routeId)
+        .eq("direction_id", directionId)
+        .limit(1);
+
+      if (tripError || !tripData || tripData.length === 0) {
+        throw new Error(
+          `No trips found for route ${routeId}, direction ${directionId}`
+        );
+      }
+
+      const representativeTripId = tripData[0].trip_id;
+
+      // קבלת כל התחנות לטיול עם הפרטים המלאים
+      const { data: stopTimes, error: stopError } = await supabase
+        .from("stop_times")
+        .select(
+          `
+          stop_sequence,
+          stops (
+            stop_id,
+            stop_code,
+            stop_name,
+            stop_lat,
+            stop_lon
+          )
+        `
+        )
+        .eq("trip_id", representativeTripId)
+        .order("stop_sequence", { ascending: directionId === 0 });
+
+      if (stopError) {
+        throw new Error(`Error fetching stops: ${stopError.message}`);
+      }
+
+      if (!stopTimes || stopTimes.length === 0) {
+        throw new Error(`No stops found for trip ${representativeTripId}`);
+      }
+
+      // המרת הנתונים לפורמט הנדרש
+      const stops: StopForTrip[] = stopTimes.map((st) => {
+        const stop = Array.isArray(st.stops) ? st.stops[0] : st.stops;
+        return {
+          stop_id: stop.stop_id,
+          stop_code: stop.stop_code || "",
+          stop_name: stop.stop_name || "Unknown Stop",
+          stop_sequence: st.stop_sequence,
+          coordinates: {
+            lat: stop.stop_lat || 0,
+            lon: stop.stop_lon || 0
+          }
+        };
+      });
+
+      console.log(
+        `Found ${stops.length} stops for route ${routeId}, direction ${directionId}`
+      );
+      return stops;
+    } catch (error) {
+      console.error(`Error in getStopsForRoute:`, error);
+      throw error;
+    }
+  }}
+

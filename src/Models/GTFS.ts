@@ -25,7 +25,18 @@ export interface DirectionResult {
   common_patterns: string[];
 
 }
- export interface StopInfo {
+export interface StopForTrip {
+  stop_id: string;
+  stop_code: string;
+  stop_name: string;
+  stop_sequence: number;
+  coordinates: {
+    lat: number;
+    lon: number;
+  };
+}
+export interface StopInfo
+  {
   name: string;
   stop_code: string;
   coordinates: { lat: number; lon: number };
