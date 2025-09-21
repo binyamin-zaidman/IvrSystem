@@ -1,178 +1,196 @@
 import { supabase } from "../Config/Supabase";
 import { Trip, StopForTrip, TripRequest } from "../Models/Trip";
+import { generateConfirmationCode } from "../Utils/Confirm";
 export class TripService {
  
-  static async createTrip(tripRequest: TripRequest): Promise<Trip> {
-    try {
-      console.log('Creating new trip:', tripRequest);
+  static async createTrip(tripRequest: TripRequest): Promise<any> {
+  try {
+    console.log('=== USING RIDES TABLE ===');
+    console.log('Creating new ride:', tripRequest);
 
-      if (!supabase) {
-        throw new Error("Supabase client not initialized");
-      }
-
-      // וולידציות בסיסיות
-      if (!tripRequest.user_id || !tripRequest.route_id) {
-        throw new Error("Missing required fields: user_id, route_id");
-      }
-
-      if (tripRequest.boarding_stop_id === tripRequest.alighting_stop_id) {
-        throw new Error("Boarding and alighting stops cannot be the same");
-      }
-
-      // קבלת שמות התחנות מהדאטהבייס
-      const { data: boardingStopData, error: boardingError } = await supabase
-        .from("stops")
-        .select("stop_name")
-        .eq("stop_id", tripRequest.boarding_stop_id)
-        .single();
-
-      const { data: alightingStopData, error: alightingError } = await supabase
-        .from("stops")
-        .select("stop_name")
-        .eq("stop_id", tripRequest.alighting_stop_id)
-        .single();
-
-      if (boardingError || alightingError) {
-        throw new Error("Error fetching stop information");
-      }
-
-      // יצירת הנסיעה
-      const tripData = {
-        user_id: tripRequest.user_id,
-        line_number: tripRequest.line_number,
-        agency_id: tripRequest.agency_id,
-        route_id: tripRequest.route_id,
-        direction_id: tripRequest.direction_id,
-        boarding_stop_name: boardingStopData.stop_name,
-        alighting_stop_name: alightingStopData.stop_name,
-        boarding_stop_id: tripRequest.boarding_stop_id,
-        alighting_stop_id: tripRequest.alighting_stop_id,
-        boarding_coordinates: tripRequest.boarding_coordinates,
-        alighting_coordinates: tripRequest.alighting_coordinates,
-        trip_date: tripRequest.trip_date || new Date(),
-        status: 'pending' as const,
-        created_at: new Date()
-      };
-
-      const { data: createdTrip, error: createError } = await supabase
-        .from("trips")
-        .insert(tripData)
-        .select()
-        .single();
-
-      if (createError) {
-        throw new Error(`Error creating trip: ${createError.message}`);
-      }
-
-      console.log('Trip created successfully:', createdTrip.id);
-      return createdTrip;
-
-    } catch (error) {
-      console.error('Error in createTrip:', error);
-      throw error;
+    if (!supabase) {
+      throw new Error("Supabase client not initialized");
     }
+
+    // וולידציות בסיסיות
+    if (!tripRequest.user_id || !tripRequest.route_id) {
+      throw new Error("Missing required fields: user_id, route_id");
+    }
+
+    if (tripRequest.boarding_stop_id === tripRequest.alighting_stop_id) {
+      throw new Error("Boarding and alighting stops cannot be the same");
+    }
+// מצא trip_id אמיתי מהדאטהבייס
+const { data: existingTrip, error: tripError } = await supabase
+  .from("trips")
+  .select("trip_id")
+  .eq("route_id", tripRequest.route_id)
+  .eq("direction_id", tripRequest.direction_id)
+  .limit(1);
+
+if (tripError) {
+  throw new Error(`Error finding trip: ${tripError.message}`);
+}
+
+if (!existingTrip || existingTrip.length === 0) {
+  throw new Error(`No trip found for route ${tripRequest.route_id}, direction ${tripRequest.direction_id}`);
+}
+
+const actualTripId = existingTrip[0].trip_id;
+console.log('Found trip_id:', actualTripId);
+    // יצירת הנסיעה עם כל השדות הנדרשים
+    const rideData = {
+      user_id: tripRequest.user_id,
+      trip_id:actualTripId,
+      direction_id: tripRequest.direction_id,
+      start_stop_id: tripRequest.boarding_stop_id,
+      end_stop_id: tripRequest.alighting_stop_id,
+      boarding_coordinates: tripRequest.boarding_coordinates,
+      alighting_coordinates: tripRequest.alighting_coordinates,
+      agency_id: tripRequest.agency_id,
+      line_number: tripRequest.line_number,
+      bus_code: tripRequest.line_number, // גם bus_code לתאימות לאחור
+      start_time: tripRequest.trip_date || new Date(),
+      amount: 0.00,
+      expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      confirmation_code: `CONF_${generateConfirmationCode()}`, // פונקציה ליצירת קוד
+    };
+
+    console.log('Inserting ride data:', rideData);
+
+    const { data: createdRide, error: createError } = await supabase
+      .from("rides")
+      .insert(rideData)
+      .select()
+      .single();
+
+    if (createError) {
+      console.error('Supabase insert error:', createError);
+      throw new Error(`Error creating ride: ${createError.message}`);
+    }
+
+    console.log('Ride created successfully:', createdRide.id);
+    return createdRide;
+
+  } catch (error) {
+    console.error('Error in createTrip:', error);
+    throw error;
   }
- static async updateTripStatus(
+}
+
+static async updateTripStatus(
     tripId: string,
-    status: Trip['status'],
+    status: string,
     paymentConfirmationCode?: string
-  ): Promise<Trip> {
+  ): Promise<any> {
     try {
-      console.log(`Updating trip ${tripId} status to ${status}`);
+      console.log(`Updating ride ${tripId} status to ${status}`);
 
       if (!supabase) {
         throw new Error("Supabase client not initialized");
       }
 
-      const updateData: any = { status };
-      if (paymentConfirmationCode) {
-        updateData.payment_confirmation_code = paymentConfirmationCode;
+      const updateData: any = {};
+      
+      // עדכון לפי הסטטוס
+      if (status === 'confirmed') {
+        updateData.start_time = new Date();
+        if (paymentConfirmationCode) {
+          updateData.confirmation_code = paymentConfirmationCode;
+        }
+      } else if (status === 'completed') {
+        updateData.end_time = new Date();
       }
 
-      const { data: updatedTrip, error } = await supabase
-        .from("trips")
+      const { data: updatedRide, error } = await supabase
+        .from("rides")
         .update(updateData)
         .eq("id", tripId)
         .select()
         .single();
 
       if (error) {
-        throw new Error(`Error updating trip: ${error.message}`);
+        throw new Error(`Error updating ride: ${error.message}`);
       }
 
-      console.log('Trip updated successfully');
-      return updatedTrip;
+      console.log('Ride updated successfully');
+      return { ...updatedRide, status: status }; // מחזיר עם הסטטוס
 
     } catch (error) {
       console.error('Error in updateTripStatus:', error);
       throw error;
     }
   }
+
+
+
   static async getUserTrips(
     userId: string,
     limit: number = 10,
     offset: number = 0
-  ): Promise<Trip[]> {
+  ): Promise<any[]> {
     try {
-      console.log(`Getting trips for user: ${userId}`);
+      console.log(`Getting rides for user: ${userId}`);
 
       if (!supabase) {
         throw new Error("Supabase client not initialized");
       }
 
-      const { data: trips, error } = await supabase
-        .from("trips")
+      const { data: rides, error } = await supabase
+        .from("rides")
         .select("*")
         .eq("user_id", userId)
-        .order("created_at", { ascending: false })
+        .order("start_time", { ascending: false })
         .range(offset, offset + limit - 1);
 
       if (error) {
-        throw new Error(`Error fetching user trips: ${error.message}`);
+        throw new Error(`Error fetching user rides: ${error.message}`);
       }
 
-      console.log(`Found ${trips?.length || 0} trips for user ${userId}`);
-      return trips || [];
+      console.log(`Found ${rides?.length || 0} rides for user ${userId}`);
+      return rides || [];
 
     } catch (error) {
       console.error('Error in getUserTrips:', error);
       throw error;
     }
   }
+
+
+
 static async searchTrips(filters: {
-    userId?: string;
-    lineNumber?: string;
-    agencyId?: string;
-    status?: Trip['status'];
-    fromDate?: Date;
-    toDate?: Date;
-  }): Promise<Trip[]> {
-    try {
-      if (!supabase) {
-        throw new Error("Supabase client not initialized");
-      }
-
-      let query = supabase.from("trips").select("*");
-
-      // הוספת פילטרים לפי הצורך
-      if (filters.userId) query = query.eq("user_id", filters.userId);
-      if (filters.lineNumber) query = query.eq("line_number", filters.lineNumber);
-      if (filters.agencyId) query = query.eq("agency_id", filters.agencyId);
-      if (filters.status) query = query.eq("status", filters.status);
-      if (filters.fromDate) query = query.gte("trip_date", filters.fromDate.toISOString());
-      if (filters.toDate) query = query.lte("trip_date", filters.toDate.toISOString());
-
-      const { data: trips, error } = await query.order("created_at", { ascending: false });
-
-      if (error) {
-        throw new Error(`Error searching trips: ${error.message}`);
-      }
-
-      return trips || [];
-
-    } catch (error) {
-      console.error('Error in searchTrips:', error);
-      throw error;
+  userId?: string;
+  lineNumber?: string;
+  agencyId?: string;
+  fromDate?: Date;
+  toDate?: Date;
+}): Promise<any[]> {
+  try {
+    if (!supabase) {
+      throw new Error("Supabase client not initialized");
     }
+
+    let query = supabase.from("rides").select("*");
+
+    if (filters.userId) query = query.eq("user_id", filters.userId);
+    if (filters.lineNumber) query = query.eq("line_number", filters.lineNumber);
+    if (filters.agencyId) query = query.eq("agency_id", filters.agencyId);
+    if (filters.fromDate) query = query.gte("start_time", filters.fromDate.toISOString());
+    if (filters.toDate) query = query.lte("start_time", filters.toDate.toISOString());
+
+    const { data: rides, error } = await query.order("start_time", { ascending: false });
+
+    if (error) {
+      throw new Error(`Error searching rides: ${error.message}`);
+    }
+
+    return rides || [];
+
+  } catch (error) {
+    console.error('Error in searchTrips:', error);
+    throw error;
   }
 }
+
+}
+

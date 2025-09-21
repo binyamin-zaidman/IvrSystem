@@ -72,7 +72,7 @@ static async getDirectionsByAgency(
     // Step 2: Get all trips for ALL routes in one optimized query
     const routeIds = routeData.map((route) => route.route_id);
     const { data: tripData, error: tripError } = await supabase
-      .from("trips")
+      .from("rides")
       .select("trip_id, direction_id, trip_headsign, route_id")
       .in("route_id", routeIds)
       .order("route_id, direction_id");
@@ -272,9 +272,7 @@ private static getAlternativeHeadsigns(trips: any[]): string[] {
     agencyId: string
   ): Promise<StopForTrip[]> {
     try {
-      console.log(
-        `Getting stops for route: ${routeId}, direction: ${directionId}`
-      );
+      console.log(`Getting stops for route: ${routeId}, direction: ${directionId}`);
 
       if (!supabase) {
         throw new Error("Supabase client not initialized");
@@ -282,25 +280,23 @@ private static getAlternativeHeadsigns(trips: any[]): string[] {
 
       // קבלת טיול מייצג לקו והכיוון הספציפיים
       const { data: tripData, error: tripError } = await supabase
-        .from("trips")
+        .from("rides")
         .select("trip_id")
         .eq("route_id", routeId)
         .eq("direction_id", directionId)
         .limit(1);
 
       if (tripError || !tripData || tripData.length === 0) {
-        throw new Error(
-          `No trips found for route ${routeId}, direction ${directionId}`
-        );
+        throw new Error(`No trips found for route ${routeId}, direction ${directionId}`);
       }
 
       const representativeTripId = tripData[0].trip_id;
 
-      // קבלת כל התחנות לטיול עם הפרטים המלאים
+      // קבלת כל התחנות לטיול הספציפי הזה עם הפרטים המלאים
+      // תמיד בסדר עולה לפי stop_sequence (סדר הנסיעה הטבעי)
       const { data: stopTimes, error: stopError } = await supabase
         .from("stop_times")
-        .select(
-          `
+        .select(`
           stop_sequence,
           stops (
             stop_id,
@@ -309,10 +305,9 @@ private static getAlternativeHeadsigns(trips: any[]): string[] {
             stop_lat,
             stop_lon
           )
-        `
-        )
+        `)
         .eq("trip_id", representativeTripId)
-        .order("stop_sequence", { ascending: directionId === 0 });
+        .order("stop_sequence", { ascending: true });
 
       if (stopError) {
         throw new Error(`Error fetching stops: ${stopError.message}`);
@@ -321,29 +316,41 @@ private static getAlternativeHeadsigns(trips: any[]): string[] {
       if (!stopTimes || stopTimes.length === 0) {
         throw new Error(`No stops found for trip ${representativeTripId}`);
       }
-
-      // המרת הנתונים לפורמט הנדרש
-      const stops: StopForTrip[] = stopTimes.map((st) => {
-        const stop = Array.isArray(st.stops) ? st.stops[0] : st.stops;
-        return {
-          stop_id: stop.stop_id,
-          stop_code: stop.stop_code || "",
-          stop_name: stop.stop_name || "Unknown Stop",
-          stop_sequence: st.stop_sequence,
-          coordinates: {
-            lat: stop.stop_lat || 0,
-            lon: stop.stop_lon || 0
-          }
-        };
-      });
-
-      console.log(
-        `Found ${stops.length} stops for route ${routeId}, direction ${directionId}`
-      );
+// DEBUG: בואו נראה מה בעצם חוזר מהדאטהבייס
+console.log('=== DEBUG stopTimes ===');
+console.log('First stopTime object:', JSON.stringify(stopTimes[0], null, 2));
+console.log('Type of stops:', typeof stopTimes[0].stops);
+console.log('Is stops an array?', Array.isArray(stopTimes[0].stops));
+console.log('========================');
+// המרת הנתונים לפורמט הנדרש
+const stops: StopForTrip[] = stopTimes.map((st) => {
+  // תמיכה בשני מקרים - מערך או אובייקט
+  const stop = Array.isArray(st.stops) ? st.stops[0] : st.stops;
+  
+  return {
+    stop_id: stop?.stop_id,
+    stop_code: stop?.stop_code || "",
+    stop_name: stop?.stop_name || "Unknown Stop",
+    stop_sequence: st.stop_sequence,
+    coordinates: {
+      lat: parseFloat(stop?.stop_lat) || 0,
+      lon: parseFloat(stop?.stop_lon) || 0
+    }
+  };
+});
+      console.log(`Found ${stops.length} stops for route ${routeId}, direction ${directionId}`);
       return stops;
+
     } catch (error) {
       console.error(`Error in getStopsForRoute:`, error);
       throw error;
     }
-  }}
+  }
 
+  static validateStopSequence(
+    boardingStop: StopForTrip,
+    alightingStop: StopForTrip
+  ): boolean {
+    return alightingStop.stop_sequence > boardingStop.stop_sequence;
+  }
+}
