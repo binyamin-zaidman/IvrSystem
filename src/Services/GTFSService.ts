@@ -72,7 +72,7 @@ static async getDirectionsByAgency(
     // Step 2: Get all trips for ALL routes in one optimized query
     const routeIds = routeData.map((route) => route.route_id);
     const { data: tripData, error: tripError } = await supabase
-      .from("rides")
+      .from("trips")
       .select("trip_id, direction_id, trip_headsign, route_id")
       .in("route_id", routeIds)
       .order("route_id, direction_id");
