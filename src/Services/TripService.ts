@@ -3,12 +3,11 @@ import { Trip, StopForTrip, TripRequest } from "../Models/Trip";
 import { generateConfirmationCode } from "../Utils/Confirm";
 import { PaymentService } from "./PaymentService";
 export class TripService {
- 
-   static async createTrip(tripRequest: TripRequest): Promise<any> {
+  static async createTrip(tripRequest: TripRequest): Promise<any> {
     try {
       console.log("=== USING RIDES TABLE ===");
       console.log("Creating new ride:", tripRequest);
-      console.log("Route ID from request:", tripRequest.route_id); // הוסף את זה
+      console.log("Route ID from request:", tripRequest.route_id);
 
       if (!supabase) {
         throw new Error("Supabase client not initialized");
@@ -22,22 +21,20 @@ export class TripService {
       if (tripRequest.boarding_stop_id === tripRequest.alighting_stop_id) {
         throw new Error("Boarding and alighting stops cannot be same");
       }
-   
-      let tripPrice = 8; // ברירת מחדל
-      // שלב חדש: חישוב המחיר עם ה-route_id הנכון
-  try {
-  const fareResult = await PaymentService.calculateFare(
-    tripRequest.route_id,
-    tripRequest.boarding_stop_id,
-    tripRequest.alighting_stop_id,
-    tripRequest.agency_id
-  );
-  tripPrice = fareResult.price;
-  console.log('Calculated fare successfully:', fareResult);
-} catch (fareError) {
-  console.warn('Error calculating fare, using default:', fareError);
-  // נשאר עם המחיר ברירת המחדל
-}
+
+      let tripPrice = 8.0; // ברירת מחדל
+      try {
+        const fareResult = await PaymentService.calculateFare(
+          tripRequest.route_id,
+          tripRequest.boarding_stop_id,
+          tripRequest.alighting_stop_id,
+          tripRequest.agency_id
+        );
+        tripPrice = fareResult.price;
+        console.log("Calculated fare successfully:", fareResult);
+      } catch (fareError) {
+        console.warn("Error calculating fare, using default:", fareError);
+      }
 
       // מצא trip_id אמיתי מהדאטהבייס
       const { data: existingTrip, error: tripError } = await supabase
@@ -72,12 +69,15 @@ export class TripService {
         agency_id: tripRequest.agency_id,
         line_number: tripRequest.line_number,
         bus_code: tripRequest.line_number,
-        start_time: tripRequest.trip_date || new Date(),
+        start_time: new Date(),
         amount: tripPrice, // אם לא מצליח לחשב, השתמש במחיר ברירת מחדל של 8₪
-        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        expires_at: new Date(Date.now() + 90 * 60 * 1000), // 90 דקות מהזמן הנוכחי
         confirmation_code: `CONF_${generateConfirmationCode()}`
       };
-
+      console.log("Ride data to insert:", rideData.start_time);
+      console.log("Ride data to insert:", rideData.expires_at);
+      
+      
       console.log("Inserting ride data with amount:", rideData.amount);
 
       const { data: createdRide, error: createError } = await supabase
