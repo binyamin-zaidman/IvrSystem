@@ -1,5 +1,7 @@
 import { Router } from "express";
 import { TripController } from "../../Controllers/TripController";
+import { PaymentController } from "../../Controllers/PaymentController";
+
 
 
 const router = Router();
