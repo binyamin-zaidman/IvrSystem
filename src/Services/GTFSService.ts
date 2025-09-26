@@ -168,6 +168,7 @@ static async getDirectionsByAgency(
       // Create direction result
       const direction: DirectionResult = {
         direction_id: group.direction_id,
+        route_id: group.route.route_id,
         direction_name: this.getDirectionName(
           representativeTrip.trip_headsign,
           firstStop,
@@ -177,7 +178,6 @@ static async getDirectionsByAgency(
         last_stop: this.createStopInfo(lastStop, group.trips.length),
         total_trips: group.trips.length,
         route_long_name: group.route.route_long_name || "",
-        route_description: `Route ID: ${group.route.route_id}`,
         alternative_headsigns: this.getAlternativeHeadsigns(group.trips),
         common_patterns: ["simple"]
       };

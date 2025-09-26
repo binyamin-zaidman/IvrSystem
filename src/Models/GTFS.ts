@@ -20,7 +20,8 @@ export interface DirectionResult {
   } | null;
   total_trips: number;
   route_long_name: string;
-  route_description: string;
+  route_id: string;
+
   alternative_headsigns: string[];
   common_patterns: string[];
 
