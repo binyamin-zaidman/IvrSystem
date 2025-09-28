@@ -3,7 +3,7 @@ import { Trip, StopForTrip, TripRequest } from "../Models/Trip";
 import { GTFSService } from "./GTFSService";
 import { generateConfirmationCode } from "../Utils/Confirm";
 import { PaymentService } from "./PaymentService";
-import { CalculationService } from "./CalculationService";
+import { CalculationService } from "./CalculateService";
 export class TripService {
   static async createTrip(tripRequest: TripRequest): Promise<any> {
     try {
