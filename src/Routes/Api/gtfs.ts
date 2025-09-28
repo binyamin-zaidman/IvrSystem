@@ -12,4 +12,5 @@ router.post("/directions", GTFSController.getDirectionsByAgency);
 
 // שלב 3: החזרת תחנות לפי קו + חברה + כיוון
 router.post("/stops", GTFSController.getStopsForRoute);
+
 export default router;

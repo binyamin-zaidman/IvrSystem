@@ -1,5 +1,6 @@
 import { supabase } from "../Config/Supabase";
 import { Trip, StopForTrip, TripRequest } from "../Models/Trip";
+import { GTFSService } from "./GTFSService";
 import { generateConfirmationCode } from "../Utils/Confirm";
 import { PaymentService } from "./PaymentService";
 export class TripService {
@@ -98,6 +99,68 @@ export class TripService {
       throw error;
     }
   }
+  
+   static async findRouteByNumber(routeNumber: string, agencyId: string) {
+    const { data: routeData, error } = await supabase
+      .from("routes")
+      .select("route_id, route_short_name")
+      .eq("route_short_name", routeNumber)
+      .eq("agency_id", agencyId)
+      .limit(1);
+
+    if (error) throw new Error(`Error finding route: ${error.message}`);
+    return routeData && routeData.length > 0 ? routeData[0] : null;
+  }
+  static async createTripWithStopSelection(params: {
+    userId: string;
+    routeId: string;
+    directionId: number;
+    agencyId: string;
+    lineNumber: string;
+    boardingStopName: string;
+    alightingStopName: string;
+  }) {
+    // 1. קבל תחנות מ-GTFSService
+    const stops = await GTFSService.getStopsForRoute(
+      params.routeId, 
+      params.directionId, 
+      params.agencyId
+    );
+
+    // 2. מצא תחנות
+    const boardingStop = GTFSService.findStopByName(stops, params.boardingStopName);
+    const alightingStop = GTFSService.findStopByName(stops, params.alightingStopName);
+
+    if (!boardingStop) throw new Error(`תחנת עליה לא נמצאה: ${params.boardingStopName}`);
+    if (!alightingStop) throw new Error(`תחנת ירידה לא נמצאה: ${params.alightingStopName}`);
+    if (alightingStop.stop_sequence <= boardingStop.stop_sequence) {
+      throw new Error("תחנת הירידה חייבת להיות אחרי תחנת העליה");
+    }
+
+    // 3. צור נסיעה
+    const tripRequest: TripRequest = {
+      user_id: params.userId,
+      line_number: params.lineNumber,
+      agency_id: params.agencyId,
+      route_id: params.routeId,
+      direction_id: params.directionId,
+      boarding_stop_id: boardingStop.stop_id,
+      alighting_stop_id: alightingStop.stop_id,
+      boarding_coordinates: boardingStop.coordinates,
+      alighting_coordinates: alightingStop.coordinates,
+      trip_date: new Date()
+    };
+
+    const createdTrip = await this.createTrip(tripRequest);
+    
+    return {
+      trip: createdTrip,
+      boardingStop,
+      alightingStop,
+      totalStops: alightingStop.stop_sequence - boardingStop.stop_sequence
+    };
+  }
+
 
   static async updateTripStatus(
     tripId: string,
