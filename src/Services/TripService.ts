@@ -3,6 +3,7 @@ import { Trip, StopForTrip, TripRequest } from "../Models/Trip";
 import { GTFSService } from "./GTFSService";
 import { generateConfirmationCode } from "../Utils/Confirm";
 import { PaymentService } from "./PaymentService";
+import { CalculationService } from "./CalculationService";
 export class TripService {
   static async createTrip(tripRequest: TripRequest): Promise<any> {
     try {
@@ -23,19 +24,23 @@ export class TripService {
         throw new Error("Boarding and alighting stops cannot be same");
       }
 
-      let tripPrice = 8.0; // ברירת מחדל
-      try {
-        const fareResult = await PaymentService.calculateFare(
-          tripRequest.route_id,
-          tripRequest.boarding_stop_id,
-          tripRequest.alighting_stop_id,
-          tripRequest.agency_id
-        );
-        tripPrice = fareResult.price;
-        console.log("Calculated fare successfully:", fareResult);
-      } catch (fareError) {
-        console.warn("Error calculating fare, using default:", fareError);
-      }
+// השימוש במתודה המעודכנת
+let tripPrice = 8.0;
+try {
+  const fareResult = await CalculationService.calculateFareImproved(
+    tripRequest.route_id,
+    tripRequest.boarding_stop_id,
+    tripRequest.alighting_stop_id,
+    tripRequest.agency_id
+  );
+  
+  tripPrice = fareResult.price;
+  
+  console.log(`Calculated fare: ${fareResult.price} ILS (${fareResult.fareId}) - Method: ${fareResult.method}`);
+  
+} catch (fareError) {
+  console.warn("Error calculating fare, using default:", fareError);
+}
 
       // מצא trip_id אמיתי מהדאטהבייס
       const { data: existingTrip, error: tripError } = await supabase
