@@ -40,4 +40,22 @@ static async getLineBusAgencies(req: Request, res: Response) {
     res.status(500).json({ message: err.message });
   }
 }
+
+  static async getStopsForRoute(req: Request, res: Response) { try {
+    const {routeId, directionId,agencyId } = req.body;
+    if (!routeId || !agencyId) {
+      return res.status(400).json({ message: "lineBusInfo and agencyId are required" });
+    }
+
+    const stops = await GTFSService.getStopsForRoute(routeId, directionId,agencyId);
+
+    if (stops.length === 0) {
+      return res.status(404).json({ message: "No directions found for this line and agency" });
+    }
+
+    res.json({ routeId: routeId, agencyId, stops });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
 }

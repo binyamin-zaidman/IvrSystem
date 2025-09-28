@@ -17,8 +17,8 @@ app.use(bodyParser.json());
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/trips", tripRoutes);
-app.use("/api/payments", paymentRoutes);
 app.use("/api/gtfs", gtfsRoutes);
+app.use("/api/payments", paymentRoutes);
 
 // IVR routes
 app.use("/ivr/webhook", ivrWebhook);

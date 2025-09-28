@@ -280,7 +280,7 @@ private static getAlternativeHeadsigns(trips: any[]): string[] {
 
       // קבלת טיול מייצג לקו והכיוון הספציפיים
       const { data: tripData, error: tripError } = await supabase
-        .from("rides")
+        .from("trips")
         .select("trip_id")
         .eq("route_id", routeId)
         .eq("direction_id", directionId)
@@ -307,6 +307,7 @@ private static getAlternativeHeadsigns(trips: any[]): string[] {
           )
         `)
         .eq("trip_id", representativeTripId)
+             
         .order("stop_sequence", { ascending: true });
 
       if (stopError) {
