@@ -14,6 +14,7 @@ const app = express();
 app.use(bodyParser.json());
 
 // API routes
+app.get("/", (req, res) => res.send("Hello World!"));
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/trips", tripRoutes);
