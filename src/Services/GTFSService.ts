@@ -1,3 +1,4 @@
+import { log } from "console";
 import { supabase } from "../Config/Supabase";
 import { StopInfo, DirectionResult, StopForTrip } from "../Models/GTFS";
 import { TripRequest } from "../Models/Trip";
@@ -6,6 +7,7 @@ import { TripService } from "./TripService";
 export class GTFSService {
   static async getLineBusAgencies(lineBusInfo: string) {
     try {
+      console.log(`Getting bus agencies for line: ${lineBusInfo}`);
       const { data, error } = await supabase
         .from("routes")
         .select("agency_id, route_long_name")
@@ -23,7 +25,7 @@ export class GTFSService {
 
       if (agencyError)
         throw new Error(`Agencies query error: ${agencyError.message}`);
-
+      console.log("agencies:", agencies);
       return agencies || [];
     } catch (error) {
       console.error(

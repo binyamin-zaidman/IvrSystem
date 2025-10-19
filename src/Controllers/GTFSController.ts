@@ -1,17 +1,18 @@
 import { Request, Response } from "express";
 import { GTFSService } from "../Services/GTFSService";
+import { log } from "console";
 
 
 export class GTFSController {
-static async getLineBusAgencies(req: Request, res: Response) {
+  static async getLineBusAgencies(req: Request, res: Response) {
     try {
+      console.log("agencies:");
       const { lineBusInfo } = req.body;
       if (!lineBusInfo) {
         return res.status(400).json({ message: "lineBusInfo is required" });
       }
 
       const agencies = await GTFSService.getLineBusAgencies(lineBusInfo);
-
       if (agencies.length === 0) {
         return res.status(404).json({ message: "No agencies found for this line" });
       }
