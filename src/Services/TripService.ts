@@ -68,7 +68,7 @@ export class TripService {
       if (!userData) {
         throw new Error(`User not found for phone: ${tripRequest.user_id}`);
       }
-
+console.log("User data found:", userData.id);
       // יצירת הנסיעה עם המחיר המחושב
       const rideData = {
         user_id: userData.id,
