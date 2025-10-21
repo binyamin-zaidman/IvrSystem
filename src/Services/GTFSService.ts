@@ -909,10 +909,10 @@ export class GTFSService {
 
       const { data: stops, error: stopsError } = await supabase
         .from("stops")
-        .select("stop_id, stop_name, location_type")
-        .in("stop_id", uniqueStopIds)
-        // .eq("location_type", 1) // תחנות בלבד
-        // .order("stop_name");
+        .select("stop_id, stop_name, location_type,stop_lat,stop_lon,stop_code")
+        .in("stop_id", uniqueStopIds);
+      // .eq("location_type", 1) // תחנות בלבד
+      // .order("stop_name");
 
       if (stopsError || !stops) {
         console.error("Error fetching stops:", stopsError);
@@ -957,8 +957,8 @@ export class GTFSService {
         .eq("agency_id", params.agencyId)
         .limit(100);
 
-        console.log(routes);
-        
+      console.log(routes);
+
       if (routesError || !routes || routes.length === 0) {
         return {
           success: false,
@@ -966,23 +966,27 @@ export class GTFSService {
         };
       }
 
-const routeTripPairs = await Promise.all(routes.map(async (route) => {
-  const { data: trips, error: tripsError } = await supabase
-    .from("trips")
-    .select("route_id, trip_id")
-    .eq("route_id", route.route_id);
+      const routeTripPairs = await Promise.all(
+        routes.map(async (route) => {
+          const { data: trips, error: tripsError } = await supabase
+            .from("trips")
+            .select("route_id, trip_id")
+            .eq("route_id", route.route_id);
 
-  if (tripsError || !trips || trips.length === 0) {
-    return null;
-  }
+          if (tripsError || !trips || trips.length === 0) {
+            return null;
+          }
 
-  return trips.map((trip) => ({ route_id: route.route_id, trip_id: trip.trip_id }));
-}));
+          return trips.map((trip) => ({
+            route_id: route.route_id,
+            trip_id: trip.trip_id
+          }));
+        })
+      );
 
-const foundTripPairs = routeTripPairs.flat().filter(pair => pair);
+      const foundTripPairs = routeTripPairs.flat().filter((pair) => pair);
 
-console.log("Found trip pairs:", foundTripPairs);
-
+      console.log("Found trip pairs:", foundTripPairs);
 
       // חפש trip שעובר בשתי התחנות
       let foundTrip = null;
@@ -1078,8 +1082,8 @@ console.log("Found trip pairs:", foundTripPairs);
         agency_id: params.agencyId,
         line_number: "רכבת",
         bus_code: "TRAIN",
-       start_time: new Date(),
-       amount: price,
+        start_time: new Date(),
+        amount: price,
         expires_at: new Date(Date.now() + 90 * 60 * 1000),
         confirmation_code: confirmationCode
       };
