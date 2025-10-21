@@ -10,7 +10,7 @@ export class IVRController {
     console.log("📲 Incoming IVR request:", JSON.stringify(req.body, null, 2));
     
     try {
-      const { ApiPhone, ApiDtmf, hangup, LINE, DIRECTION, AGENCY, BOARDING, ALIGHTING } = req.body;
+      const { ApiPhone, hangup } = req.body;
       
       // ניתוק שיחה
       if (hangup === "yes") {
@@ -28,15 +28,16 @@ export class IVRController {
       
       const session = IVRService.getOrCreateSession(ApiPhone);
       console.log(`📊 Session: ${ApiPhone}, Step: ${session.step}`);
-      console.log(`📥 Received - LINE: ${LINE || 'none'}, DIRECTION: ${DIRECTION || 'none'}, AGENCY: ${AGENCY || 'none'}, BOARDING: ${BOARDING || 'none'}, ALIGHTING: ${ALIGHTING || 'none'}`);
+      console.log(`📥 Received body:`, req.body);
       console.log("------------------------------------------");
 
       let response: string;
 
-      // טיפול לפי השלב הנוכחי (ולא לפי הפרמטרים!)
+      // טיפול לפי השלב הנוכחי
       switch (session.step) {
         case "START":
         case "SELECT_LINE":
+          const { LINE } = req.body;
           if (LINE) {
             console.log(`✅ Handling LINE selection: ${LINE}`);
             response = await IVRService.handleLineSelection(ApiPhone, LINE);
@@ -46,6 +47,7 @@ export class IVRController {
           break;
 
         case "SELECT_AGENCY":
+          const { AGENCY } = req.body;
           if (AGENCY) {
             console.log(`✅ Handling AGENCY selection: ${AGENCY}`);
             response = await IVRService.handleAgencySelection(ApiPhone, AGENCY);
@@ -55,6 +57,7 @@ export class IVRController {
           break;
 
         case "SELECT_DIRECTION":
+          const { DIRECTION } = req.body;
           if (DIRECTION) {
             console.log(`✅ Handling DIRECTION selection: ${DIRECTION}`);
             // DIRECTION מגיע כמערך, לוקחים את הערך הראשון
@@ -65,7 +68,38 @@ export class IVRController {
           }
           break;
 
+        case "SELECT_STOP_METHOD":
+          const { STOP_METHOD } = req.body;
+          if (STOP_METHOD) {
+            console.log(`✅ Handling STOP_METHOD selection: ${STOP_METHOD}`);
+            response = await IVRService.handleStopMethodSelection(ApiPhone, STOP_METHOD);
+          } else {
+            response = "id_list_message=t-לא התקבלה בחירה\nhangup=yes";
+          }
+          break;
+
+        case "ENTER_BOARDING_CODE":
+          const { BOARDING_CODE } = req.body;
+          if (BOARDING_CODE) {
+            console.log(`✅ Handling BOARDING_CODE entry: ${BOARDING_CODE}`);
+            response = await IVRService.handleBoardingCodeEntry(ApiPhone, BOARDING_CODE);
+          } else {
+            response = "id_list_message=t-לא הוקש מספר תחנה\nhangup=yes";
+          }
+          break;
+
+        case "ENTER_ALIGHTING_CODE":
+          const { ALIGHTING_CODE } = req.body;
+          if (ALIGHTING_CODE) {
+            console.log(`✅ Handling ALIGHTING_CODE entry: ${ALIGHTING_CODE}`);
+            response = await IVRService.handleAlightingCodeEntry(ApiPhone, ALIGHTING_CODE);
+          } else {
+            response = "id_list_message=t-לא הוקש מספר תחנה\nhangup=yes";
+          }
+          break;
+
         case "SELECT_BOARDING":
+          const { BOARDING } = req.body;
           if (BOARDING) {
             console.log(`✅ Handling BOARDING selection: ${BOARDING}`);
             response = await IVRService.handleBoardingStopSelection(ApiPhone, BOARDING);
@@ -75,6 +109,7 @@ export class IVRController {
           break;
 
         case "SELECT_ALIGHTING":
+          const { ALIGHTING } = req.body;
           if (ALIGHTING) {
             console.log(`✅ Handling ALIGHTING selection: ${ALIGHTING}`);
             response = await IVRService.handleAlightingStopSelection(ApiPhone, ALIGHTING, ApiPhone);

@@ -1,6 +1,7 @@
 import { supabase } from "../Config/Supabase";
 import { Trip, StopForTrip, TripRequest } from "../Models/Trip";
 import { GTFSService } from "./GTFSService";
+import { UserService } from "./UserService";
 import { generateConfirmationCode } from "../Utils/Confirm";
 import { PaymentService } from "./PaymentService";
 import { CalculationService } from "./CalculateService";
@@ -24,23 +25,24 @@ export class TripService {
         throw new Error("Boarding and alighting stops cannot be same");
       }
 
-// השימוש במתודה המעודכנת
-let tripPrice = 8.0;
-try {
-  const fareResult = await CalculationService.calculateFareImproved(
-    tripRequest.route_id,
-    tripRequest.boarding_stop_id,
-    tripRequest.alighting_stop_id,
-    tripRequest.agency_id
-  );
-  
-  tripPrice = fareResult.price;
-  
-  console.log(`Calculated fare: ${fareResult.price} ILS (${fareResult.fareId}) - Method: ${fareResult.method}`);
-  
-} catch (fareError) {
-  console.warn("Error calculating fare, using default:", fareError);
-}
+      // השימוש במתודה המעודכנת
+      let tripPrice = 8.0;
+      try {
+        const fareResult = await CalculationService.calculateFareImproved(
+          tripRequest.route_id,
+          tripRequest.boarding_stop_id,
+          tripRequest.alighting_stop_id,
+          tripRequest.agency_id
+        );
+
+        tripPrice = fareResult.price;
+
+        console.log(
+          `Calculated fare: ${fareResult.price} ILS (${fareResult.fareId}) - Method: ${fareResult.method}`
+        );
+      } catch (fareError) {
+        console.warn("Error calculating fare, using default:", fareError);
+      }
 
       // מצא trip_id אמיתי מהדאטהבייס
       const { data: existingTrip, error: tripError } = await supabase
@@ -62,10 +64,14 @@ try {
 
       const actualTripId = existingTrip[0].trip_id;
       console.log("Found trip_id:", actualTripId);
+      const userData = await UserService.getUserByPhone(tripRequest.user_id);
+      if (!userData) {
+        throw new Error(`User not found for phone: ${tripRequest.user_id}`);
+      }
 
       // יצירת הנסיעה עם המחיר המחושב
       const rideData = {
-        user_id: tripRequest.user_id,
+        user_id: userData.id,
         trip_id: actualTripId,
         direction_id: tripRequest.direction_id,
         start_stop_id: tripRequest.boarding_stop_id,
@@ -76,14 +82,13 @@ try {
         line_number: tripRequest.line_number,
         bus_code: tripRequest.line_number,
         start_time: new Date(),
-        amount: tripPrice, // אם לא מצליח לחשב, השתמש במחיר ברירת מחדל של 8₪
-        expires_at: new Date(Date.now() + 90 * 60 * 1000), // 90 דקות מהזמן הנוכחי
+        amount: tripPrice,
+        expires_at: new Date(Date.now() + 90 * 60 * 1000),
         confirmation_code: `CONF_${generateConfirmationCode()}`
       };
       console.log("Ride data to insert:", rideData.start_time);
       console.log("Ride data to insert:", rideData.expires_at);
-      
-      
+
       console.log("Inserting ride data with amount:", rideData.amount);
 
       const { data: createdRide, error: createError } = await supabase
@@ -104,8 +109,8 @@ try {
       throw error;
     }
   }
-  
-   static async findRouteByNumber(routeNumber: string, agencyId: string) {
+
+  static async findRouteByNumber(routeNumber: string, agencyId: string) {
     const { data: routeData, error } = await supabase
       .from("routes")
       .select("route_id, route_short_name")
@@ -127,17 +132,25 @@ try {
   }) {
     // 1. קבל תחנות מ-GTFSService
     const stops = await GTFSService.getStopsForRoute(
-      params.routeId, 
-      params.directionId, 
+      params.routeId,
+      params.directionId,
       params.agencyId
     );
 
     // 2. מצא תחנות
-    const boardingStop = GTFSService.findStopByName(stops, params.boardingStopName);
-    const alightingStop = GTFSService.findStopByName(stops, params.alightingStopName);
+    const boardingStop = GTFSService.findStopByName(
+      stops,
+      params.boardingStopName
+    );
+    const alightingStop = GTFSService.findStopByName(
+      stops,
+      params.alightingStopName
+    );
 
-    if (!boardingStop) throw new Error(`תחנת עליה לא נמצאה: ${params.boardingStopName}`);
-    if (!alightingStop) throw new Error(`תחנת ירידה לא נמצאה: ${params.alightingStopName}`);
+    if (!boardingStop)
+      throw new Error(`תחנת עליה לא נמצאה: ${params.boardingStopName}`);
+    if (!alightingStop)
+      throw new Error(`תחנת ירידה לא נמצאה: ${params.alightingStopName}`);
     if (alightingStop.stop_sequence <= boardingStop.stop_sequence) {
       throw new Error("תחנת הירידה חייבת להיות אחרי תחנת העליה");
     }
@@ -157,7 +170,7 @@ try {
     };
 
     const createdTrip = await this.createTrip(tripRequest);
-    
+
     return {
       trip: createdTrip,
       boardingStop,
@@ -165,7 +178,6 @@ try {
       totalStops: alightingStop.stop_sequence - boardingStop.stop_sequence
     };
   }
-
 
   static async updateTripStatus(
     tripId: string,
@@ -279,4 +291,3 @@ try {
     }
   }
 }
-

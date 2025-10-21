@@ -416,6 +416,7 @@ export class GTFSService {
         .eq("route_short_name", routeNumber)
         .eq("agency_id", ivrData.agencyId)
         .limit(1);
+  const { TripService } = await import("./TripService");
 
       if (routeError || !routeData || routeData.length === 0) {
         throw new Error(`קו ${routeNumber} לא נמצא`);
@@ -500,4 +501,339 @@ export class GTFSService {
   ): boolean {
     return alightingStop.stop_sequence > boardingStop.stop_sequence;
   }
+
+  // הוסף את המתודות האלה ל-GTFSService.ts הקיים שלך
+// אחרי המתודה handleIVRTripCreation
+
+/**
+ * חיפוש תחנה לפי מספר תחנה (stop_code)
+ * שימושי למערכת IVR - המשתמש מקיש מספר תחנה
+ */
+static async searchStopByCode(stopCode: string): Promise<{
+  stop_id: string;
+  stop_code: string;
+  stop_name: string;
+  stop_lat: number;
+  stop_lon: number;
+} | null> {
+  try {
+    const { data, error } = await supabase
+      .from("stops")
+      .select("stop_id, stop_code, stop_name, stop_lat, stop_lon")
+      .eq("stop_code", stopCode)
+      .limit(1)
+      .single();
+
+    if (error || !data) {
+      console.log(`❌ Stop not found for code: ${stopCode}`);
+      return null;
+    }
+
+    console.log(`✅ Found stop: ${data.stop_name} (${data.stop_code})`);
+    
+    return {
+      stop_id: data.stop_id,
+      stop_code: data.stop_code,
+      stop_name: data.stop_name,
+      stop_lat: parseFloat(data.stop_lat),
+      stop_lon: parseFloat(data.stop_lon)
+    };
+  } catch (error) {
+    console.error("Error searching stop by code:", error);
+    return null;
+  }
+}
+
+/**
+ * בדיקה אם תחנה נמצאת על מסלול מסוים
+ * מחזיר גם את stop_sequence כדי לוודא סדר תחנות
+ */
+static async isStopOnRoute(
+  stopId: string,
+  routeId: string,
+  directionId: number,
+  agencyId: string
+): Promise<{
+  isOnRoute: boolean;
+  stopSequence?: number;
+}> {
+  try {
+    // שים לב: אנחנו עושים join ל-trips כדי לסנן לפי route_id ו-direction_id
+    // agency_id לא נמצא ב-trips, אז אנחנו לא משתמשים בו כאן
+    const { data, error } = await supabase
+      .from("stop_times")
+      .select(`
+        stop_sequence,
+        trips!inner (
+          trip_id,
+          route_id,
+          direction_id
+        )
+      `)
+      .eq("stop_id", stopId)
+      .eq("trips.route_id", routeId)
+      .eq("trips.direction_id", directionId)
+      .limit(1);
+
+    if (error) {
+      console.error("Error in isStopOnRoute:", error);
+      return { isOnRoute: false };
+    }
+
+    if (!data || data.length === 0) {
+      return { isOnRoute: false };
+    }
+
+    return {
+      isOnRoute: true,
+      stopSequence: data[0].stop_sequence
+    };
+  } catch (error) {
+    console.error("Error checking if stop is on route:", error);
+    return { isOnRoute: false };
+  }
+}
+
+/**
+ * קבלת תחנה ראשונה ואחרונה של מסלול
+ * חשוב למערכת IVR - אופציה "נסיעה מלאה"
+ */
+static async getFirstAndLastStops(
+  routeId: string,
+  directionId: number,
+  agencyId: string
+): Promise<{
+  firstStop: {
+    stop_id: string;
+    stop_name: string;
+    stop_code: string;
+    stop_lat: number;
+    stop_lon: number;
+  };
+  lastStop: {
+    stop_id: string;
+    stop_name: string;
+    stop_code: string;
+    stop_lat: number;
+    stop_lon: number;
+  };
+}> {
+  try {
+    console.log(`🔍 Searching for trip with route: ${routeId}, direction: ${directionId}, agency: ${agencyId}`);
+    
+    // קבל trip אחד מייצג
+    // שים לב: agency_id נמצא ב-routes, לא ב-trips!
+    const { data: tripData, error: tripError } = await supabase
+      .from("trips")
+      .select("trip_id")
+      .eq("route_id", routeId)
+      .eq("direction_id", directionId)
+      .limit(1);
+
+    console.log(`Trip query result:`, { tripData, tripError });
+
+    if (tripError) {
+      console.error("Trip query error:", tripError);
+      throw new Error(`Trip query failed: ${tripError.message}`);
+    }
+
+    if (!tripData || tripData.length === 0) {
+      console.error("No trip found for the given parameters");
+      throw new Error("No trip found for route");
+    }
+
+    const representativeTripId = tripData[0].trip_id;
+    console.log(`✅ Found representative trip: ${representativeTripId}`);
+
+    // קבל את כל התחנות למסלול הזה
+    const { data: stopTimes, error: stopError } = await supabase
+      .from("stop_times")
+      .select(`
+        stop_sequence,
+        stops (
+          stop_id,
+          stop_code,
+          stop_name,
+          stop_lat,
+          stop_lon
+        )
+      `)
+      .eq("trip_id", representativeTripId)
+      .order("stop_sequence", { ascending: true });
+
+    if (stopError) {
+      console.error("Stop times query error:", stopError);
+      throw new Error(`Failed to get stops: ${stopError.message}`);
+    }
+
+    if (!stopTimes || stopTimes.length === 0) {
+      console.error("No stops found for trip");
+      throw new Error("No stops found for trip");
+    }
+
+    console.log(`✅ Found ${stopTimes.length} stops`);
+
+    const firstStopData = stopTimes[0].stops;
+    const lastStopData = stopTimes[stopTimes.length - 1].stops;
+
+    // Supabase מחזיר stops כמערך או אובייקט, תלוי בגרסה
+    const first = Array.isArray(firstStopData) ? firstStopData[0] : firstStopData;
+    const last = Array.isArray(lastStopData) ? lastStopData[0] : lastStopData;
+
+    if (!first || !last) {
+      throw new Error("Invalid stop data structure");
+    }
+
+    console.log(`✅ First stop: ${first.stop_name}`);
+    console.log(`✅ Last stop: ${last.stop_name}`);
+
+    return {
+      firstStop: {
+        stop_id: first.stop_id,
+        stop_name: first.stop_name,
+        stop_code: first.stop_code || "",
+        stop_lat: parseFloat(first.stop_lat),
+        stop_lon: parseFloat(first.stop_lon)
+      },
+      lastStop: {
+        stop_id: last.stop_id,
+        stop_name: last.stop_name,
+        stop_code: last.stop_code || "",
+        stop_lat: parseFloat(last.stop_lat),
+        stop_lon: parseFloat(last.stop_lon)
+      }
+    };
+  } catch (error) {
+    console.error("❌ Error getting first and last stops:", error);
+    throw error;
+  }
+}
+
+/**
+ * יצירת נסיעה עם stop_id ישיר (במקום שמות תחנות)
+ * משמש למערכת IVR עם מספרי תחנות
+ */
+static async createTripWithStopIds(params: {
+  userId: string;
+  routeId: string;
+  directionId: number;
+  agencyId: string;
+  boardingStopId: string;
+  alightingStopId: string;
+}): Promise<{
+  success: boolean;
+  tripId?: string;
+  confirmationCode?: string;
+  price?: number;
+  message?: string;
+  details?: {
+    boarding_stop_id: string;
+    alighting_stop_id: string;
+    boarding_coordinates: { lat: number; lon: number };
+    alighting_coordinates: { lat: number; lon: number };
+  };
+}> {
+  try {
+    // קבל פרטי התחנות
+    const [boardingResult, alightingResult] = await Promise.all([
+      supabase
+        .from("stops")
+        .select("stop_id, stop_name, stop_lat, stop_lon")
+        .eq("stop_id", params.boardingStopId)
+        .single(),
+      supabase
+        .from("stops")
+        .select("stop_id, stop_name, stop_lat, stop_lon")
+        .eq("stop_id", params.alightingStopId)
+        .single()
+    ]);
+
+    if (boardingResult.error || alightingResult.error) {
+      return {
+        success: false,
+        message: "תחנות לא נמצאו במערכת"
+      };
+    }
+
+    const boarding = boardingResult.data;
+    const alighting = alightingResult.data;
+
+    // בדוק שהתחנות על המסלול
+    const [boardingCheck, alightingCheck] = await Promise.all([
+      this.isStopOnRoute(params.boardingStopId, params.routeId, params.directionId, params.agencyId),
+      this.isStopOnRoute(params.alightingStopId, params.routeId, params.directionId, params.agencyId)
+    ]);
+
+    if (!boardingCheck.isOnRoute || !alightingCheck.isOnRoute) {
+      return {
+        success: false,
+        message: "אחת התחנות אינה על המסלול"
+      };
+    }
+
+    if (boardingCheck.stopSequence! >= alightingCheck.stopSequence!) {
+      return {
+        success: false,
+        message: "תחנת העלייה חייבת להיות לפני תחנת הירידה"
+      };
+    }
+
+    // קבל את מספר הקו
+    const { data: routeData } = await supabase
+      .from("routes")
+      .select("route_short_name")
+      .eq("route_id", params.routeId)
+      .single();
+
+    const lineNumber = routeData?.route_short_name || "???";
+
+    // השתמש ב-TripService הקיים ליצירת הנסיעה
+    const tripRequest = {
+      user_id: params.userId,
+      line_number: lineNumber,
+      agency_id: params.agencyId,
+      route_id: params.routeId,
+      direction_id: params.directionId,
+      boarding_stop_id: params.boardingStopId,
+      alighting_stop_id: params.alightingStopId,
+      boarding_coordinates: {
+        lat: parseFloat(boarding.stop_lat),
+        lon: parseFloat(boarding.stop_lon)
+      },
+      alighting_coordinates: {
+        lat: parseFloat(alighting.stop_lat),
+        lon: parseFloat(alighting.stop_lon)
+      },
+      trip_date: new Date()
+    };
+
+    // השתמש ב-TripService.createTrip שכבר קיים
+    const createdTrip = await TripService.createTrip(tripRequest);
+
+    return {
+      success: true,
+      tripId: createdTrip.id,
+      confirmationCode: createdTrip.confirmation_code,
+      price: createdTrip.amount,
+      details: {
+        boarding_stop_id: params.boardingStopId,
+        alighting_stop_id: params.alightingStopId,
+        boarding_coordinates: {
+          lat: parseFloat(boarding.stop_lat),
+          lon: parseFloat(boarding.stop_lon)
+        },
+        alighting_coordinates: {
+          lat: parseFloat(alighting.stop_lat),
+          lon: parseFloat(alighting.stop_lon)
+        }
+      }
+    };
+  } catch (error) {
+    console.error("Error creating trip with stop IDs:", error);
+    return {
+      success: false,
+      message: "שגיאה ביצירת הנסיעה"
+    };
+  }
+}
 }
