@@ -364,22 +364,22 @@ export class IVRService {
       }
 
       // 🔧 מספר חברות - בדוק אם צריך פיצול
-      if (agencies.length > 8) {
-        this.updateSession(phone, {
-          lineNumber,
-          agencies,
-          agencyPage: 0,
-          step: "SELECT_AGENCY_PAGE"
-        });
-        return this.showAgencyPage(phone, 0);
-      }
+      // if (agencies.length > 8) {
+      //   this.updateSession(phone, {
+      //     lineNumber,
+      //     agencies,
+      //     agencyPage: 0,
+      //     step: "SELECT_AGENCY_PAGE"
+      //   });
+      //   return this.showAgencyPage(phone, 0);
+      // }
 
       // עד 8 חברות - הצג רגיל
-      this.updateSession(phone, {
-        lineNumber,
-        agencies,
-        step: "SELECT_AGENCY"
-      });
+      // this.updateSession(phone, {
+      //   lineNumber,
+      //   agencies,
+      //   step: "SELECT_AGENCY"
+      // });
 
       let message = `t-קו ${lineNumber} מופעל על ידי ${agencies.length} חברות`;
       agencies.forEach((agency, index) => {
@@ -387,7 +387,7 @@ export class IVRService {
         message += `t-הקש ${index} ל ${cleanName}`;
       });
 
-      return `read=${message}=AGENCY,yes,1,1,30,Digits,no,no`;
+      return `read=${message}=AGENCY,yes,1,1,30,Digits=2,no,no`;
     } catch (error) {
       console.error("Error in handleLineSelection:", error);
       return "id_list_message=t-אירעה שגיאה במערכת\nhangup=yes";

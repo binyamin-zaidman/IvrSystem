@@ -132,63 +132,63 @@ export class IVRController {
           break;
 
        // 🆕 בחירת דף חברות (למקרה של יותר מ-8 חברות)
-        case "SELECT_AGENCY_PAGE": {
-  try {
-    const { AGENCY_PAGE } = req.body;
-    if (!AGENCY_PAGE) {
-      response = "id_list_message=t-לא התקבלה בחירה\nhangup=yes";
-      break;
-    }
+//         case "SELECT_AGENCY_PAGE": {
+//   try {
+//     const { AGENCY_PAGE } = req.body;
+//     if (!AGENCY_PAGE) {
+//       response = "id_list_message=t-לא התקבלה בחירה\nhangup=yes";
+//       break;
+//     }
 
-    const pageIndex = parseInt(AGENCY_PAGE);
-    const currentSession = IVRService.getOrCreateSession(ApiPhone);
+//     const pageIndex = parseInt(AGENCY_PAGE);
+//     const currentSession = IVRService.getOrCreateSession(ApiPhone);
 
-    if (!currentSession.agencies || !currentSession.lineNumber) {
-      console.error("❌ Missing agencies or lineNumber in session");
-      response = "id_list_message=t-אירעה שגיאה\nhangup=yes";
-      break;
-    }
+//     if (!currentSession.agencies || !currentSession.lineNumber) {
+//       console.error("❌ Missing agencies or lineNumber in session");
+//       response = "id_list_message=t-אירעה שגיאה\nhangup=yes";
+//       break;
+//     }
 
-    const currentPage = currentSession.agencyPage || 0;
-    const itemsPerPage = 8;
-    const startIndex = currentPage * itemsPerPage;
-    const hasMorePages = startIndex + itemsPerPage < currentSession.agencies.length;
+//     const currentPage = currentSession.agencyPage || 0;
+//     const itemsPerPage = 8;
+//     const startIndex = currentPage * itemsPerPage;
+//     const hasMorePages = startIndex + itemsPerPage < currentSession.agencies.length;
 
-    console.log(
-      `📄 Page ${currentPage}: pageIndex=${pageIndex}, hasMore=${hasMorePages}, totalAgencies=${currentSession.agencies.length}`
-    );
+//     console.log(
+//       `📄 Page ${currentPage}: pageIndex=${pageIndex}, hasMore=${hasMorePages}, totalAgencies=${currentSession.agencies.length}`
+//     );
 
-    if (pageIndex === 9 && hasMorePages) {
-      // עמוד הבא
-      const nextPage = currentPage + 1;
-      console.log(`✅ Moving to next page: ${nextPage}`);
-      IVRService.updateSession(ApiPhone, { agencyPage: nextPage });
-      response = IVRService.showAgencyPage(ApiPhone, nextPage);
+//     if (pageIndex === 9 && hasMorePages) {
+//       // עמוד הבא
+//       const nextPage = currentPage + 1;
+//       console.log(`✅ Moving to next page: ${nextPage}`);
+//       IVRService.updateSession(ApiPhone, { agencyPage: nextPage });
+//       response = IVRService.showAgencyPage(ApiPhone, nextPage);
 
-    } else if (pageIndex >= 0 && pageIndex <= 7) {
-      // בחירת חברה (0–7 בלבד)
-      const actualIndex = currentPage * itemsPerPage + pageIndex;
-      console.log(
-        `✅ Selected agency: page=${currentPage}, button=${pageIndex}, actualIndex=${actualIndex}`
-      );
+//     } else if (pageIndex >= 0 && pageIndex <= 7) {
+//       // בחירת חברה (0–7 בלבד)
+//       const actualIndex = currentPage * itemsPerPage + pageIndex;
+//       console.log(
+//         `✅ Selected agency: page=${currentPage}, button=${pageIndex}, actualIndex=${actualIndex}`
+//       );
 
-      if (actualIndex < currentSession.agencies.length) {
-        response = await IVRService.handleAgencySelection(ApiPhone, actualIndex.toString());
-      } else {
-        console.error(`❌ Invalid index: ${actualIndex} >= ${currentSession.agencies.length}`);
-        response = IVRService.showAgencyPage(ApiPhone, currentPage);
-      }
+//       if (actualIndex < currentSession.agencies.length) {
+//         response = await IVRService.handleAgencySelection(ApiPhone, actualIndex.toString());
+//       } else {
+//         console.error(`❌ Invalid index: ${actualIndex} >= ${currentSession.agencies.length}`);
+//         response = IVRService.showAgencyPage(ApiPhone, currentPage);
+//       }
 
-    } else {
-      console.error(`❌ Invalid pageIndex: ${pageIndex}`);
-      response = IVRService.showAgencyPage(ApiPhone, currentPage);
-    }
-  } catch (err) {
-    console.error("⚠️ Error in SELECT_AGENCY_PAGE:", err);
-    response = "id_list_message=t-שגיאה פנימית\nhangup=yes";
-  }
-  break;
-}
+//     } else {
+//       console.error(`❌ Invalid pageIndex: ${pageIndex}`);
+//       response = IVRService.showAgencyPage(ApiPhone, currentPage);
+//     }
+//   } catch (err) {
+//     console.error("⚠️ Error in SELECT_AGENCY_PAGE:", err);
+//     response = "id_list_message=t-שגיאה פנימית\nhangup=yes";
+//   }
+//   break;
+// }
 
         case "SELECT_DIRECTION":
           const { DIRECTION } = req.body;
