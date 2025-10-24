@@ -1,11 +1,68 @@
 import { GTFSService } from "./GTFSService";
 import { TripService } from "./TripService";
-import { UserSession } from "../Models/IVR";
+import { UserSession, TrainRegion } from "../Models/IVR";
 import { extractDigits } from "../Utils/Confirm";
-import { log } from "console";
 import { UserService } from "./UserService";
 
-// פונקציות עזר להקראה
+// אזורי רכבת
+const TRAIN_REGIONS: Record<TrainRegion, { name: string; stations: string[] }> = {
+  center: {
+    name: "תל אביב והמרכז",
+    stations: [
+      "37292", // תל אביב ההגנה
+      "37350", // השלום
+      "37358", // תל אביב מרכז
+      "37360", // תא אוניברסיטה
+      "37362", // הרצליה
+      "37336", // רמלה
+      "37338", // לוד
+      "37298", // ראשונים
+      "37306", // נתב"ג
+      "37394", // מודיעין מרכז
+      "37396", // פאתי מודיעין
+      "42418"  // מזכרת בתיה
+    ]
+  },
+  jerusalem: {
+    name: "ירושלים והסביבה",
+    stations: [
+      "37322"  // בית שמש
+    ]
+  },
+  south: {
+    name: "דרום הארץ",
+    stations: [
+      "37316", // קרית גת
+      "42419", // קרית מלאכי
+      "37312", // באר שבע מרכז
+      "37314", // באר שבע צפון
+      "37308"  // להבים רהט
+    ]
+  },
+  north: {
+    name: "צפון הארץ",
+    stations: [
+      "37380", // חיפה מרכז
+      "37378", // בת גלים
+      "37376", // חוף הכרמל
+      "37374", // עתלית
+      "37372", // בנימינה
+      "37382", // נהריה
+      "37384", // עכו
+      "42507", // מרכזית המפרץ
+      "37388", // מרכזית המפרץ/קו החוף
+      "37386", // חוצות מפרץ
+      "37392", // קרית חיים
+      "41293", // קרית מוצקין
+      "40584", // כפר יהושע
+      "40581", // כפר ברוך
+      "40582", // עפולה
+      "40583"  // בית שאן
+    ]
+  }
+};
+
+// פונקציות עזר
 function formatPriceForIVR(price: number): string {
   const shekels = Math.floor(price);
   const agorot = Math.round((price - shekels) * 100);
@@ -52,23 +109,12 @@ export class IVRService {
     return sessions.get(phone)!;
   }
 
-  static updateSession(
-    phone: string,
-    updates: Partial<UserSession>
-  ): UserSession {
+  static updateSession(phone: string, updates: Partial<UserSession>): UserSession {
     const session = this.getOrCreateSession(phone);
-    console.log("📝 updateSession - Before update:");
-    console.log("  Phone:", phone);
-    console.log("  Current session:", JSON.stringify(session, null, 2));
-    console.log("  Updates:", JSON.stringify(updates, null, 2));
-
+    console.log("📝 updateSession - Before:", JSON.stringify(session, null, 2));
     Object.assign(session, updates);
     sessions.set(phone, session);
-
-    console.log("✅ updateSession - After update:");
-    console.log("  Updated session:", JSON.stringify(session, null, 2));
-    console.log("  Sessions map size:", sessions.size);
-
+    console.log("✅ updateSession - After:", JSON.stringify(session, null, 2));
     return session;
   }
 
@@ -77,26 +123,20 @@ export class IVRService {
   }
 
   /**
-   * שלב התחלה - בחירת סוג תחבורה
+   * שלב התחלה
    */
   static async handleStart(phone: string): Promise<string> {
     this.getOrCreateSession(phone);
     this.updateSession(phone, { step: "SELECT_TRANSPORT_TYPE" });
-    const message = `t-לאוטובוס הקש 1, לרכבת הקש 2`;
+    const message = `t-לנסיעה באוטובוס הקש 1, לנסיעה ברכבת הקש 2`;
     return `read=${message}=TRANSPORT_TYPE,yes,1,1,30,Digits,no,no`;
   }
 
   /**
    * בחירת סוג תחבורה
    */
-  static async handleTransportTypeSelection(
-    phone: string,
-    transportType: string
-  ): Promise<string> {
-    const session = this.getOrCreateSession(phone);
-
+  static async handleTransportTypeSelection(phone: string, transportType: string): Promise<string> {
     if (transportType === "1") {
-      // אוטובוס - עבור לבחירת קו
       this.updateSession(phone, {
         transportType: "bus",
         step: "SELECT_LINE"
@@ -104,50 +144,85 @@ export class IVRService {
       const message = "t-אנא הקש את מספר הקו המבוקש";
       return `read=${message}=LINE,yes,3,1,30,Digits,no,no`;
     } else if (transportType === "2") {
-      // רכבת - עבור לבחירת תחנת מוצא
       this.updateSession(phone, {
         transportType: "train",
-        agencyId: "2", // רכבת ישראל
-        step: "SELECT_TRAIN_ORIGIN"
+        agencyId: "2",
+        step: "SELECT_TRAIN_REGION"
       });
-      return await this.getTrainStationsList(phone, "origin");
+      return this.getTrainRegionsList(phone);
     } else {
-      const message =
-        `t-בחירה לא חוקית` + `.t-לחץ 1 לאוטובוס` + `.t-לחץ 2 לרכבת`;
+      const message = `t-בחירה לא חוקית.t-לחץ 1 לאוטובוס.t-לחץ 2 לרכבת`;
       return `read=${message}=TRANSPORT_TYPE,yes,1,1,30,Digits,no,no`;
     }
   }
 
   /**
-   * קבלת רשימת תחנות רכבת
+   * בחירת אזור רכבת
    */
-  static async getTrainStationsList(
+  static getTrainRegionsList(phone: string): string {
+    let message = "t-אנא בחר אזור";
+    message += ".t-הקש 1 לתל אביב והמרכז";
+    message += ".t-הקש 2 לירושלים והסביבה";
+    message += ".t-הקש 3 לדרום הארץ";
+    message += ".t-הקש 4 לצפון הארץ";
+    return `read=${message}=TRAIN_REGION,yes,1,1,30,Digits,no,no`;
+  }
+
+  /**
+   * טיפול בבחירת אזור
+   */
+  static async handleTrainRegionSelection(phone: string, regionIndex: string): Promise<string> {
+    const regions: TrainRegion[] = ["center", "jerusalem", "south", "north"];
+    const index = parseInt(regionIndex) - 1;
+
+    if (index < 0 || index >= regions.length) {
+      return this.getTrainRegionsList(phone);
+    }
+
+    const selectedRegion = regions[index];
+    this.updateSession(phone, {
+      trainRegion: selectedRegion,
+      step: "SELECT_TRAIN_ORIGIN"
+    });
+
+    return await this.getTrainStationsByRegion(phone, selectedRegion, "origin");
+  }
+
+  /**
+   * קבלת תחנות לפי אזור
+   */
+  static async getTrainStationsByRegion(
     phone: string,
+    region: TrainRegion,
     type: "origin" | "destination"
   ): Promise<string> {
     try {
-      // קבל את כל תחנות הרכבת
-      const trainStations = await GTFSService.getTrainStations();
-      if (trainStations.length === 0) {
-        return "id_list_message=t-לא נמצאו תחנות רכבת\nhangup=yes";
+      const regionData = TRAIN_REGIONS[region];
+      const allStations = await GTFSService.getTrainStations();
+      
+      const regionalStations = allStations.filter(station =>
+        regionData.stations.includes(station.stop_id)
+      );
+
+      if (regionalStations.length === 0) {
+        console.log(`❌ No stations found for region ${region}`);
+        return "id_list_message=t-לא נמצאו תחנות באזור זה אנא בחר אזור אחר\nhangup=yes";
       }
 
-      // שמור את התחנות בסשן
-      this.updateSession(phone, { trainStations });
+      this.updateSession(phone, { trainStations: regionalStations });
 
       const messageType = type === "origin" ? "תחנת מוצא" : "תחנת יעד";
-
-      // הצג את 9 התחנות הראשונות (0-9)
-      let message = `t-אנא בחר ${messageType}`;
-      trainStations.slice(0, 9).forEach((station, index) => {
+      let message = `t-אזור ${regionData.name} אנא בחר ${messageType}`;
+      
+      regionalStations.slice(0, 9).forEach((station, index) => {
         const cleanName = cleanTextForIVR(station.stop_name, 25);
-        message += `.t-לחץ ${index} ל ${cleanName}`;
+        message += `.t-הקש ${index} ל ${cleanName}`;
       });
 
       const varName = type === "origin" ? "TRAIN_ORIGIN" : "TRAIN_DESTINATION";
       return `read=${message}=${varName},yes,1,1,30,Digits,no,no`;
     } catch (error) {
-      console.error("Error getting train stations:", error);
+      console.error("Error getting regional stations:", error);
       return "id_list_message=t-אירעה שגיאה\nhangup=yes";
     }
   }
@@ -155,19 +230,16 @@ export class IVRService {
   /**
    * בחירת תחנת רכבת מוצא
    */
-  static async handleTrainOriginSelection(
-    phone: string,
-    stationIndex: string
-  ): Promise<string> {
+  static async handleTrainOriginSelection(phone: string, stationIndex: string): Promise<string> {
     const session = this.getOrCreateSession(phone);
 
-    if (!session.trainStations) {
+    if (!session.trainStations || !session.trainRegion) {
       return "id_list_message=t-אירעה שגיאה\nhangup=yes";
     }
 
     const index = parseInt(stationIndex);
     if (isNaN(index) || index < 0 || index >= session.trainStations.length) {
-      return await this.getTrainStationsList(phone, "origin");
+      return await this.getTrainStationsByRegion(phone, session.trainRegion, "origin");
     }
 
     const originStation = session.trainStations[index];
@@ -178,17 +250,13 @@ export class IVRService {
       step: "SELECT_TRAIN_DESTINATION"
     });
 
-    // עבור לבחירת תחנת יעד
-    return await this.getTrainStationsList(phone, "destination");
+    return await this.getTrainStationsByRegion(phone, session.trainRegion, "destination");
   }
 
   /**
-   * בחירת תחנת רכבת יעד ויצירת נסיעה
+   * 🚀 בחירת תחנת רכבת יעד - עם הודעת המתנה
    */
-  static async handleTrainDestinationSelection(
-    phone: string,
-    stationIndex: string
-  ): Promise<string> {
+  static async handleTrainDestinationSelection(phone: string, stationIndex: string): Promise<string> {
     const session = this.getOrCreateSession(phone);
 
     if (!session.trainStations || !session.trainOriginStopId) {
@@ -197,20 +265,23 @@ export class IVRService {
 
     const index = parseInt(stationIndex);
     if (isNaN(index) || index < 0 || index >= session.trainStations.length) {
-      return await this.getTrainStationsList(phone, "destination");
+      return await this.getTrainStationsByRegion(phone, session.trainRegion!, "destination");
     }
 
     const destinationStation = session.trainStations[index];
 
-    // וידוא שלא בחרו אותה תחנה
     if (destinationStation.stop_id === session.trainOriginStopId) {
       return "read=t-תחנת היעד זהה לתחנת המוצא אנא בחר תחנה אחרת=TRAIN_DESTINATION,yes,1,1,30,Digits,no,no";
     }
+
+    // 🚀 הוסף הודעת המתנה
+    console.log("⏳ Starting train trip creation - this may take a few seconds...");
+
     const userData = await UserService.getUserByPhone(phone);
+    
     try {
-      // יצירת נסיעת רכבת
       const result = await GTFSService.createTrainTrip({
-        userId:userData?.id,
+        userId: userData?.id,
         originStopId: session.trainOriginStopId,
         destinationStopId: destinationStation.stop_id,
         agencyId: "2"
@@ -234,10 +305,10 @@ export class IVRService {
           `hangup=yes`
         );
       } else {
-        return `id_list_message=t-!!!אירעה שגיאה ${result.message}\nhangup=yes`;
+        return `id_list_message=t-אירעה שגיאה ${result.message}\nhangup=yes`;
       }
     } catch (error) {
-      console.error("Error creating train trip:", error);
+      console.error("❌ Error creating train trip:", error);
       this.clearSession(phone);
       return "id_list_message=t-אירעה שגיאה\nhangup=yes";
     }
@@ -246,11 +317,10 @@ export class IVRService {
   /**
    * טיפול בבחירת מספר קו
    */
-  static async handleLineSelection(
-    phone: string,
-    lineNumber: string
-  ): Promise<string> {
+  static async handleLineSelection(phone: string, lineNumber: string): Promise<string> {
     const session = this.getOrCreateSession(phone);
+
+    lineNumber = lineNumber.replace(/^0+/, '') || '0';
 
     try {
       const agencies = await GTFSService.getLineBusAgencies(lineNumber);
@@ -268,33 +338,43 @@ export class IVRService {
           step: "SELECT_DIRECTION"
         });
 
-        const directions = await GTFSService.getDirectionsByAgency(
-          lineNumber,
-          agencies[0].agency_id
-        );
-
-        this.updateSession(phone, { directions });
+        const directions = await GTFSService.getDirectionsByAgency(lineNumber, agencies[0].agency_id);
+        const normalizedDirections = directions.map(dir => ({
+          ...dir,
+          first_stop: dir.first_stop === null ? undefined : dir.first_stop,
+          last_stop: dir.last_stop === null ? undefined : dir.last_stop
+        }));
+        this.updateSession(phone, { directions: normalizedDirections });
 
         if (directions.length === 0) {
           return "id_list_message=t-לא נמצאו כיוונים זמינים עבור קו זה\nhangup=yes";
         }
-
-        // אם יש כיוון אחד - עבור ישירות
+        console.log(`📊 directions: {directions}`);
         if (directions.length === 1) {
-          console.log("⚡ Single direction found, automatically selecting it");
           return await this.handleDirectionSelection(phone, "0");
         }
 
-        // מספר כיוונים
         let message = `t-קו ${lineNumber} נמצא אנא בחר כיוון`;
-        directions.forEach((dir, index) => {
-          message += `.t-לחץ ${index} ל ${dir.direction_name}`;
+        directions.slice(0, 9).forEach((dir, index) => {
+          const cleanName = cleanTextForIVR(dir.direction_name, 25);
+          message += `.t-לחץ ${index} ל ${cleanName}`;
         });
 
         return `read=${message}=DIRECTION,yes,1,1,10,Digits,no,no`;
       }
 
-      // מספר חברות
+      // 🔧 מספר חברות - בדוק אם צריך פיצול
+      if (agencies.length > 8) {
+        this.updateSession(phone, {
+          lineNumber,
+          agencies,
+          agencyPage: 0,
+          step: "SELECT_AGENCY_PAGE"
+        });
+        return this.showAgencyPage(phone, 0);
+      }
+
+      // עד 8 חברות - הצג רגיל
       this.updateSession(phone, {
         lineNumber,
         agencies,
@@ -303,10 +383,11 @@ export class IVRService {
 
       let message = `t-קו ${lineNumber} מופעל על ידי ${agencies.length} חברות`;
       agencies.forEach((agency, index) => {
-        message += `.t-לחץ ${index} ל ${agency.agency_name}`;
+        const cleanName = cleanTextForIVR(agency.agency_name, 12);
+        message += `t-הקש ${index} ל ${cleanName}`;
       });
 
-      return `read=${message}=AGENCY,yes,1,1,10,Digits,no,no`;
+      return `read=${message}=AGENCY,yes,1,1,30,Digits,no,no`;
     } catch (error) {
       console.error("Error in handleLineSelection:", error);
       return "id_list_message=t-אירעה שגיאה במערכת\nhangup=yes";
@@ -314,12 +395,60 @@ export class IVRService {
   }
 
   /**
+   * 🔧 הצגת דף חברות - תוקן
+   */
+static showAgencyPage(phone: string, page: number): string {
+  try {
+    const session = this.getOrCreateSession(phone);
+
+    if (!session.agencies || session.agencies.length === 0) {
+      console.error("❌ No agencies in session");
+      return "id_list_message=t-לא נמצאו חברות תואמות\nhangup=yes";
+    }
+
+    if (!session.lineNumber) {
+      console.error("❌ Missing lineNumber in session");
+      return "id_list_message=t-חסר מידע על קו הנסיעה\nhangup=yes";
+    }
+
+    const itemsPerPage = 8; // מקשים 0–7 לחברות, 9 לעמוד הבא
+    const totalAgencies = session.agencies.length;
+    const totalPages = Math.ceil(totalAgencies / itemsPerPage);
+    const safePage = Math.max(0, Math.min(page, totalPages - 1));
+
+    const start = safePage * itemsPerPage;
+    const end = Math.min(start + itemsPerPage, totalAgencies);
+    const pageAgencies = session.agencies.slice(start, end);
+    const hasMore = end < totalAgencies;
+
+    console.log(
+      `📄 Showing agencies (page ${safePage + 1}/${totalPages}): ${start}-${end - 1} | total=${totalAgencies} | hasMore=${hasMore}`
+    );
+
+    let message = `t-קו ${session.lineNumber} נמצא, אנא בחר חברה`;
+
+    pageAgencies.forEach((agency, index) => {
+      const cleanName = cleanTextForIVR(agency.agency_name, 20);
+      message += `.t-ל ${cleanName} הקש ${index}`;
+    });
+
+    if (hasMore) {
+      message += ".t-הקש 9 לעמוד הבא";
+    }
+console.log("🧾 Raw IVR message:", message);
+
+    return `read=${message}=SELECT_AGENCY_PAGE,yes,1,1,30,Digits,no,no`;
+  } catch (err) {
+    console.error("⚠️ Error in showAgencyPage:", err);
+    return "id_list_message=t-שגיאה פנימית בעת הצגת רשימת החברות\nhangup=yes";
+  }
+}
+
+
+  /**
    * טיפול בבחירת חברה
    */
-  static async handleAgencySelection(
-    phone: string,
-    agencyIndex: string
-  ): Promise<string> {
+  static async handleAgencySelection(phone: string, agencyIndex: string): Promise<string> {
     const session = this.getOrCreateSession(phone);
 
     if (!session.agencies || !session.lineNumber) {
@@ -328,11 +457,8 @@ export class IVRService {
 
     const index = parseInt(agencyIndex);
     if (isNaN(index) || index < 0 || index >= session.agencies.length) {
-      let message = `t-בחירה לא חוקית אנא בחר חברה`;
-      session.agencies.forEach((agency, i) => {
-        message += `.t-לחץ ${i} ל ${agency.agency_name}`;
-      });
-      return `read=${message}=AGENCY,yes,1,1,10,Digits,no,no`;
+      const currentPage = session.agencyPage || 0;
+      return this.showAgencyPage(phone, currentPage);
     }
 
     const selectedAgency = session.agencies[index];
@@ -346,7 +472,11 @@ export class IVRService {
       this.updateSession(phone, {
         agencyId: selectedAgency.agency_id,
         agencyName: selectedAgency.agency_name,
-        directions,
+        directions: directions.map(dir => ({
+          ...dir,
+          first_stop: dir.first_stop === null ? undefined : dir.first_stop,
+          last_stop: dir.last_stop === null ? undefined : dir.last_stop
+        })),
         step: "SELECT_DIRECTION"
       });
 
@@ -354,16 +484,14 @@ export class IVRService {
         return "id_list_message=t-לא נמצאו כיוונים זמינים עבור חברה זו\nhangup=yes";
       }
 
-      // אם יש כיוון אחד - עבור ישירות לבחירת כיוון
       if (directions.length === 1) {
-        console.log("⚡ Single direction found, automatically selecting it");
         return await this.handleDirectionSelection(phone, "0");
       }
 
-      // אם יש מספר כיוונים - תן למשתמש לבחור
       let message = `t-נבחרה חברת ${selectedAgency.agency_name} אנא בחר כיוון`;
-      directions.forEach((dir, index) => {
-        message += `.t-לחץ ${index} ל ${dir.direction_name}`;
+      directions.slice(0, 9).forEach((dir, index) => {
+        const cleanName = cleanTextForIVR(dir.direction_name, 25);
+        message += `.t-לחץ ${index} ל ${cleanName}`;
       });
 
       return `read=${message}=DIRECTION,yes,1,1,10,Digits,no,no`;
@@ -376,10 +504,7 @@ export class IVRService {
   /**
    * טיפול בבחירת כיוון
    */
-  static async handleDirectionSelection(
-    phone: string,
-    directionIndex: string
-  ): Promise<string> {
+  static async handleDirectionSelection(phone: string, directionIndex: string): Promise<string> {
     const session = this.getOrCreateSession(phone);
 
     if (!session.directions || !session.agencyId || !session.lineNumber) {
@@ -389,29 +514,22 @@ export class IVRService {
     const index = parseInt(directionIndex);
     if (isNaN(index) || index < 0 || index >= session.directions.length) {
       let message = `t-בחירה לא חוקית אנא בחר כיוון`;
-      session.directions.forEach((dir, i) => {
-        message += `.t-לחץ ${i} ל ${dir.direction_name}`;
+      session.directions.slice(0, 9).forEach((dir, i) => {
+        const cleanName = cleanTextForIVR(dir.direction_name, 25);
+        message += `.t-לחץ ${i} ל ${cleanName}`;
       });
-      return `read=${message}=DIRECTION,yes,1,1,10,Digits,no,no`;
+      return `read=${message}=DIRECTION,yes,1,1,30,Digits,no,no`;
     }
 
     const selectedDirection = session.directions[index];
 
     try {
-      console.log(
-        `🔄 Getting first and last stops for route ${selectedDirection.route_id}`
-      );
-
       const { firstStop, lastStop } = await GTFSService.getFirstAndLastStops(
         selectedDirection.route_id,
         selectedDirection.direction_id,
         session.agencyId
       );
 
-      console.log(`✅ First stop: ${firstStop.stop_name}`);
-      console.log(`✅ Last stop: ${lastStop.stop_name}`);
-
-      // שמור את כל הפרטים בסשן
       this.updateSession(phone, {
         directionId: selectedDirection.direction_id,
         routeId: selectedDirection.route_id,
@@ -426,157 +544,25 @@ export class IVRService {
         step: "SELECT_STOP_METHOD"
       });
 
-      console.log("🔄 Updated session with stops:");
-      console.log("  Session phone:", phone);
-      console.log("  firstStop:", firstStop);
-      console.log("  lastStop:", lastStop);
-
-      // וידוא שה-session עודכן
-      const updatedSession = this.getOrCreateSession(phone);
-      console.log("✅ Verified session after update:");
-      console.log("  Has firstStop?", !!updatedSession.firstStop);
-      console.log("  Has lastStop?", !!updatedSession.lastStop);
-
-      // פשט את ההודעה - הסר תווים בעייתיים ושמות תחנות ארוכים
       const message =
-        `t-נבחר כיוון` + `.t-לחץ 1 לנסיעה מלאה` + `.t-לחץ 2 להקיש מספר תחנות`;
+        `t-נבחר כיוון` +
+        `.t-הקש 1 לנסיעה מלאה` +
+        `.t-הקש 2 להקיש מספר תחנות`;
 
-      console.log("📤 Sending simplified message:", message);
       return `read=${message}=STOP_METHOD,yes,1,1,60,Digits,no,no`;
     } catch (error) {
-      console.error("❌ Error in handleDirectionSelection:", error);
+      console.error("Error in handleDirectionSelection:", error);
       return "id_list_message=t-אירעה שגיאה\nhangup=yes";
     }
-  }
-
-  /**
-   * טיפול בבחירת תחנת עלייה
-   */
-  static async handleBoardingStopSelection(
-    phone: string,
-    stopIndex: string
-  ): Promise<string> {
-    const session = this.getOrCreateSession(phone);
-
-    if (!session.stops) {
-      return "id_list_message=t-אירעה שגיאה\nhangup=yes";
-    }
-
-    const index = parseInt(stopIndex);
-    if (isNaN(index) || index < 0 || index >= session.stops.length) {
-      let message = `t-בחירה לא חוקית אנא בחר תחנת עלייה`;
-      const displayStops = session.stops.slice(0, 5);
-      displayStops.forEach((stop, i) => {
-        message += `.t-לחץ ${i} לתחנה ${stop.stop_name}`;
-      });
-      return `read=${message}=BOARDING,yes,2,1,10,Digits,no,no`;
-    }
-
-    const selectedStop = session.stops[index];
-
-    this.updateSession(phone, {
-      boardingStop: selectedStop.stop_name,
-      boardingStopIndex: index,
-      step: "SELECT_ALIGHTING"
-    });
-
-    const remainingStops = session.stops.slice(index + 1);
-
-    let message = `t-נבחרה תחנת עלייה ${selectedStop.stop_name} אנא בחר תחנת ירידה`;
-    remainingStops.slice(0, 5).forEach((stop, i) => {
-      message += `.t-לחץ ${i} לתחנה ${stop.stop_name}`;
-    });
-
-    return `read=${message}=ALIGHTING,yes,2,1,10,Digits,no,no`;
-  }
-
-  /**
-   * טיפול בבחירת תחנת ירידה ויצירת הנסיעה
-   */
-  static async handleAlightingStopSelection(
-    phone: string,
-    stopIndex: string,
-    userId: string
-  ): Promise<string> {
-    const session = this.getOrCreateSession(phone);
-
-    if (
-      !session.stops ||
-      !session.boardingStop ||
-      session.boardingStopIndex === undefined
-    ) {
-      return "id_list_message=t-אירעה שגיאה\nhangup=yes";
-    }
-
-    const index = parseInt(stopIndex);
-    const actualIndex = session.boardingStopIndex + 1 + index;
-
-    if (isNaN(index) || actualIndex >= session.stops.length) {
-      const remainingStops = session.stops.slice(session.boardingStopIndex + 1);
-      let message = `t-בחירה לא חוקית אנא בחר תחנת ירידה`;
-      remainingStops.slice(0, 5).forEach((stop, i) => {
-        message += `.t-לחץ ${i} לתחנה ${stop.stop_name}`;
-      });
-      return `read=${message}=ALIGHTING,yes,2,1,10,Digits,no,no`;
-    }
-
-    const selectedStop = session.stops[actualIndex];
-
-    try {
-      const result = await GTFSService.handleIVRTripCreation({
-        userId,
-        spokenRouteNumber: session.lineNumber!,
-        spokenBoardingStop: session.boardingStop,
-        spokenAlightingStop: selectedStop.stop_name,
-        agencyId: session.agencyId!,
-        directionId: session.directionId!
-      });
-
-      this.clearSession(phone);
-
-      if (result.success) {
-        const confirmCode = extractDigits(result.confirmationCode);
-        return (
-          `id_list_message=t-נסיעה נוצרה בהצלחה` +
-          `.t-קו ${session.lineNumber} מ ${session.boardingStop} ל ${selectedStop.stop_name}` +
-          `.t-קוד אישור ${confirmCode}` +
-          `.t-מחיר ${result.price} שקלים` +
-          `.t-תודה שבחרת בשירות שלנו\n` +
-          `hangup=yes`
-        );
-      } else {
-        return `id_list_message=t-אירעה שגיאה ביצירת הנסיעה ${result.message}\nhangup=yes`;
-      }
-    } catch (error) {
-      console.error("Error in handleAlightingStopSelection:", error);
-      this.clearSession(phone);
-      return "id_list_message=t-אירעה שגיאה\nhangup=yes";
-    }
-  }
-
-  static handleHangup(phone: string): void {
-    this.clearSession(phone);
-    console.log(`📞 שיחה הסתיימה עבור ${phone}`);
   }
 
   /**
    * בחירת שיטת הזנת תחנות
    */
-  static async handleStopMethodSelection(
-    phone: string,
-    method: string
-  ): Promise<string> {
+  static async handleStopMethodSelection(phone: string, method: string): Promise<string> {
     const session = this.getOrCreateSession(phone);
 
-    console.log("🔍 handleStopMethodSelection - Session state:");
-    console.log("  firstStop:", session.firstStop);
-    console.log("  lastStop:", session.lastStop);
-    console.log("  routeId:", session.routeId);
-    console.log("  directionId:", session.directionId);
-    console.log("  agencyId:", session.agencyId);
-
     if (!session.firstStop || !session.lastStop) {
-      console.log("❌ Missing firstStop or lastStop in session!");
       return "id_list_message=t-אירעה שגיאה\nhangup=yes";
     }
 
@@ -586,76 +572,36 @@ export class IVRService {
       return await this.createFullTrip(phone);
     } else if (methodIndex === 2) {
       this.updateSession(phone, { step: "ENTER_BOARDING_CODE" });
-
       const message =
-        `t-אנא הקש את מספר תחנת העלייה` + `.t-מספר התחנה מופיע בשלט התחנה`;
-
+        `t-אנא הקש את מספר תחנת העלייה` +
+        `.t-מספר התחנה מופיע בשלט התחנה`;
       return `read=${message}=BOARDING_CODE,yes,5,1,30,Digits,no,no`;
     } else {
       const message =
         `t-בחירה לא חוקית` +
         `.t-לחץ 1 לנסיעה מלאה` +
         `.t-לחץ 2 להקיש מספר תחנות`;
-
       return `read=${message}=STOP_METHOD,yes,1,1,30,Digits,no,no`;
     }
   }
 
   /**
-   * יצירת נסיעה מלאה (תחנה ראשונה לאחרונה)
+   * יצירת נסיעה מלאה
    */
   static async createFullTrip(phone: string): Promise<string> {
     const session = this.getOrCreateSession(phone);
-
-    console.log("🚌 createFullTrip - Session details:");
-    console.log("  Phone:", phone);
-    console.log("  firstStop:", session.firstStop);
-    console.log("  lastStop:", session.lastStop);
-    console.log("  routeId:", session.routeId);
-    console.log("  directionId:", session.directionId);
-    console.log("  agencyId:", session.agencyId);
-    console.log("  lineNumber:", session.lineNumber);
-
-    console.log("🔍 Checking required fields:");
-    console.log("  firstStop exists?", !!session.firstStop);
-    console.log("  lastStop exists?", !!session.lastStop);
-    console.log("  routeId exists?", !!session.routeId);
-    console.log("  directionId value:", session.directionId);
-    console.log(
-      "  directionId is valid?",
-      session.directionId !== undefined && session.directionId !== null
-    );
-    console.log("  agencyId exists?", !!session.agencyId);
 
     if (
       !session.firstStop ||
       !session.lastStop ||
       !session.routeId ||
       session.directionId === undefined ||
-      session.directionId === null ||
       !session.agencyId
     ) {
-      console.log("❌ Missing required fields in createFullTrip!");
-      console.log("  Missing:", {
-        firstStop: !session.firstStop,
-        lastStop: !session.lastStop,
-        routeId: !session.routeId,
-        directionId:
-          session.directionId === undefined || session.directionId === null,
-        agencyId: !session.agencyId
-      });
       return "id_list_message=t-אירעה שגיאה\nhangup=yes";
     }
 
     try {
-      console.log("📞 Calling createTripWithStopIds with:");
-      console.log("  userId:", phone);
-      console.log("  routeId:", session.routeId);
-      console.log("  directionId:", session.directionId);
-      console.log("  agencyId:", session.agencyId);
-      console.log("  boardingStopId:", session.firstStop.stop_id);
-      console.log("  alightingStopId:", session.lastStop.stop_id);
-
       const result = await GTFSService.createTripWithStopIds({
         userId: phone,
         routeId: session.routeId,
@@ -664,8 +610,6 @@ export class IVRService {
         boardingStopId: session.firstStop.stop_id,
         alightingStopId: session.lastStop.stop_id
       });
-
-      console.log("✅ createTripWithStopIds result:", result);
 
       this.clearSession(phone);
 
@@ -689,7 +633,7 @@ export class IVRService {
         return `id_list_message=t-אירעה שגיאה ${result.message}\nhangup=yes`;
       }
     } catch (error) {
-      console.error("❌ Error in createFullTrip:", error);
+      console.error("Error in createFullTrip:", error);
       this.clearSession(phone);
       return "id_list_message=t-אירעה שגיאה\nhangup=yes";
     }
@@ -698,10 +642,7 @@ export class IVRService {
   /**
    * קבלת מספר תחנת עלייה
    */
-  static async handleBoardingCodeEntry(
-    phone: string,
-    stopCode: string
-  ): Promise<string> {
+  static async handleBoardingCodeEntry(phone: string, stopCode: string): Promise<string> {
     const session = this.getOrCreateSession(phone);
 
     try {
@@ -739,12 +680,9 @@ export class IVRService {
   }
 
   /**
-   * קבלת מספר תחנת ירידה ויצירת הנסיעה
+   * קבלת מספר תחנת ירידה
    */
-  static async handleAlightingCodeEntry(
-    phone: string,
-    stopCode: string
-  ): Promise<string> {
+  static async handleAlightingCodeEntry(phone: string, stopCode: string): Promise<string> {
     const session = this.getOrCreateSession(phone);
 
     if (!session.boardingStop) {
@@ -814,5 +752,10 @@ export class IVRService {
       this.clearSession(phone);
       return "id_list_message=t-אירעה שגיאה\nhangup=yes";
     }
+  }
+
+  static handleHangup(phone: string): void {
+    this.clearSession(phone);
+    console.log(`📞 שיחה הסתיימה עבור ${phone}`);
   }
 }

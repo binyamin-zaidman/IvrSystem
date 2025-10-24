@@ -7,7 +7,6 @@ import { TripService } from "./TripService";
 export class GTFSService {
   static async getLineBusAgencies(lineBusInfo: string) {
     try {
-      console.log(`Getting bus agencies for line: ${lineBusInfo}`);
       const { data, error } = await supabase
         .from("routes")
         .select("agency_id, route_long_name")
@@ -25,7 +24,6 @@ export class GTFSService {
 
       if (agencyError)
         throw new Error(`Agencies query error: ${agencyError.message}`);
-      console.log("agencies:", agencies);
       return agencies || [];
     } catch (error) {
       console.error(
@@ -36,183 +34,68 @@ export class GTFSService {
     }
   }
 
-  static async getDirectionsByAgency(
+static async getDirectionsByAgency(
     lineBusInfo: string,
     agencyId: string
-  ): Promise<DirectionResult[]> {
+  ): Promise<any[]> {
     try {
-      console.log(
-        `Getting directions for line: ${lineBusInfo}, agency: ${agencyId}`
-      );
+      console.log(`Getting directions for line: ${lineBusInfo}, agency: ${agencyId}`);
 
-      if (!supabase) {
-        throw new Error("Supabase client not initialized");
-      }
-
-      // Step 1: Get all routes for the line and agency
-      const { data: routeData, error: routeError } = await supabase
-        .from("routes")
-        .select("route_id, route_short_name, route_long_name, agency_id")
-        .eq("route_short_name", lineBusInfo)
-        .eq("agency_id", agencyId)
-        .order("route_id");
-
-      if (routeError)
-        throw new Error(`Route query error: ${routeError.message}`);
-      if (!routeData || routeData.length === 0) {
-        console.log(
-          `No routes found for line ${lineBusInfo}, agency ${agencyId}`
-        );
-        return [];
-      }
-
-      console.log(`Found ${routeData.length} routes for line ${lineBusInfo}`);
-
-      // Step 2: Get all trips for ALL routes in one optimized query
-      const routeIds = routeData.map((route) => route.route_id);
-      const { data: tripData, error: tripError } = await supabase
+      // Query מאופטם עם כל המידע בבת אחת
+      const { data, error } = await supabase
         .from("trips")
-        .select("trip_id, direction_id, trip_headsign, route_id")
-        .in("route_id", routeIds)
-        .order("route_id, direction_id");
+        .select(`
+          trip_id,
+          direction_id,
+          trip_headsign,
+          route_id,
+          routes!inner(
+            route_short_name,
+            route_long_name,
+            agency_id
+          )
+        `)
+        .eq("routes.route_short_name", lineBusInfo)
+        .eq("routes.agency_id", agencyId)
+        .order("direction_id")
+        .limit(100);
 
-      if (tripError) throw new Error(`Trips query error: ${tripError.message}`);
-      if (!tripData || tripData.length === 0) {
-        console.log(`No trips found for routes: ${routeIds}`);
+      if (error || !data || data.length === 0) {
+        console.log("No trips found");
         return [];
       }
 
-      console.log(`Found ${tripData.length} total trips across all routes`);
+      // קבץ לפי direction_id (לא route+direction)
+      const directionMap = new Map<number, any>();
 
-      // Step 3: Group by route_id + direction_id combination
-      const routeDirectionGroups = new Map<
-        string, // key: "route_id-direction_id"
-        {
-          route: (typeof routeData)[0];
-          trips: typeof tripData;
-          direction_id: number;
-        }
-      >();
-
-      // Group trips by route + direction combination
-      tripData.forEach((trip) => {
-        const route = routeData.find((r) => r.route_id === trip.route_id);
-        if (!route) {
-          console.warn(`Route not found for trip: ${trip.trip_id}`);
-          return;
-        }
-
-        const key = `${trip.route_id}-${trip.direction_id}`;
-
-        if (!routeDirectionGroups.has(key)) {
-          routeDirectionGroups.set(key, {
-            route,
-            trips: [],
-            direction_id: trip.direction_id
+      data.forEach(trip => {
+        const dirId = trip.direction_id;
+        
+        if (!directionMap.has(dirId)) {
+          const route = Array.isArray(trip.routes) ? trip.routes[0] : trip.routes;
+          directionMap.set(dirId, {
+            direction_id: dirId,
+            route_id: trip.route_id,
+            direction_name: trip.trip_headsign || `כיוון ${dirId}`,
+            route_long_name: route?.route_long_name || "",
+            total_trips: 0,
+            trip_ids: []
           });
         }
-        routeDirectionGroups.get(key)!.trips.push(trip);
+
+        const dir = directionMap.get(dirId)!;
+        dir.total_trips++;
+        if (dir.trip_ids.length < 5) {
+          dir.trip_ids.push(trip.trip_id);
+        }
       });
 
-      console.log(
-        `Created ${routeDirectionGroups.size} route-direction combinations`
-      );
-
-      // Step 4: Process each route-direction combination
-      const directions: DirectionResult[] = [];
-
-      for (const [key, group] of routeDirectionGroups) {
-        console.log(
-          `Processing ${key}: ${group.route.route_long_name} (Direction ${group.direction_id}) - ${group.trips.length} trips`
-        );
-
-        // Use the first trip as representative for getting stop times
-        const representativeTrip = group.trips[0];
-
-        // Get stop times for representative trip
-        const { data: stopTimes, error: stopError } = await supabase
-          .from("stop_times")
-          .select(
-            `
-          stop_sequence,
-          stops (
-            stop_code,
-            stop_name,
-            stop_lat,
-            stop_lon
-          )
-        `
-          )
-          .eq("trip_id", representativeTrip.trip_id)
-          .order("stop_sequence", { ascending: true });
-
-        if (stopError) {
-          console.error(
-            `Error fetching stop times for trip ${representativeTrip.trip_id}:`,
-            stopError
-          );
-          continue;
-        }
-
-        if (!stopTimes || stopTimes.length === 0) {
-          console.warn(`No stops found for trip ${representativeTrip.trip_id}`);
-          continue;
-        }
-
-        const firstStop = stopTimes[0].stops;
-        const lastStop = stopTimes[stopTimes.length - 1].stops;
-
-        if (!firstStop || !lastStop) {
-          console.warn(`Invalid stops for trip ${representativeTrip.trip_id}`);
-          continue;
-        }
-
-        // Create direction result
-        const direction: DirectionResult = {
-          direction_id: group.direction_id,
-          route_id: group.route.route_id,
-          direction_name: this.getDirectionName(
-            representativeTrip.trip_headsign,
-            firstStop,
-            lastStop
-          ),
-          first_stop: this.createStopInfo(firstStop, group.trips.length),
-          last_stop: this.createStopInfo(lastStop, group.trips.length),
-          total_trips: group.trips.length,
-          route_long_name: group.route.route_long_name || "",
-          alternative_headsigns: this.getAlternativeHeadsigns(group.trips),
-          common_patterns: ["simple"]
-        };
-
-        directions.push(direction);
-      }
-
-      console.log(
-        `Successfully processed ${directions.length} directions for line ${lineBusInfo}`
-      );
-
-      // Step 5: Sort results for consistent ordering
-      directions.sort((a, b) => {
-        // First by route_long_name, then by direction_id
-        const routeCompare = a.route_long_name.localeCompare(b.route_long_name);
-        if (routeCompare !== 0) return routeCompare;
-        return a.direction_id - b.direction_id;
-      });
-
-      // Step 6: Log summary for verification
-      console.log("\n=== SUMMARY ===");
-      console.log(`Database routes: ${routeData.length}`);
-      console.log(`Total trips: ${tripData.length}`);
-      console.log(`Route-Direction combinations: ${routeDirectionGroups.size}`);
-      console.log(`Final directions returned: ${directions.length}`);
-      console.log("================\n");
-
+      const directions = Array.from(directionMap.values());
+      console.log(`✅ Found ${directions.length} directions`);
+      
       return directions;
     } catch (error) {
-      console.error(
-        `Error in getDirectionsByAgency for line ${lineBusInfo}, agency ${agencyId}:`,
-        error
-      );
+      console.error("Error in getDirectionsByAgency:", error);
       throw error;
     }
   }
@@ -222,24 +105,21 @@ export class GTFSService {
     firstStop: any,
     lastStop: any
   ): string {
-    // Priority: use trip_headsign if exists and meaningful
     if (tripHeadsign && tripHeadsign.trim() && tripHeadsign.trim().length > 1) {
       return tripHeadsign.trim();
     }
 
-    // Fallback: create name from stops
     const firstName = firstStop?.stop_name || "Unknown";
     const lastName = lastStop?.stop_name || "Unknown";
 
-    // If same stop (circular route), use stop name
     if (firstName === lastName) {
       return firstName;
     }
 
-    // Different stops - create arrow format
     return `${firstName} → ${lastName}`;
   }
 
+ 
   private static createStopInfo(stop: any, tripCount: number): StopInfo | null {
     if (!stop) return null;
 
@@ -503,9 +383,7 @@ export class GTFSService {
     return alightingStop.stop_sequence > boardingStop.stop_sequence;
   }
 
-  // הוסף את המתודות האלה ל-GTFSService.ts הקיים שלך
-  // אחרי המתודה handleIVRTripCreation
-
+ 
   /**
    * חיפוש תחנה לפי מספר תחנה (stop_code)
    * שימושי למערכת IVR - המשתמש מקיש מספר תחנה
@@ -857,84 +735,9 @@ export class GTFSService {
   }
 
   /**
-   * קבלת כל תחנות הרכבת
-   */
-  static async getTrainStations(): Promise<
-    Array<{ stop_id: string; stop_name: string }>
-  > {
-    try {
-      // רכבת ישראל = agency_id: '2'
-      // location_type = 1 אומר שזו תחנה (לא פלטפורמה)
-
-      const { data: routes, error: routesError } = await supabase
-        .from("routes")
-        .select("route_id")
-        .eq("agency_id", "2")
-        .limit(100);
-
-      if (routesError || !routes || routes.length === 0) {
-        console.error("No train routes found:", routesError);
-        return [];
-      }
-
-      console.log(`✅ Found ${routes.length} train routes`);
-      const routeIds = routes.map((r) => r.route_id);
-
-      const { data: trips, error: tripsError } = await supabase
-        .from("trips")
-        .select("trip_id")
-        .in("route_id", routeIds)
-        .limit(100);
-
-      if (tripsError || !routes || routes.length === 0) {
-        console.error("No train trips found:", tripsError);
-        return [];
-      }
-      // קבל תחנות מה-stop_times
-      const tripIds = trips.map((t) => t.trip_id);
-
-      const { data: stopTimes, error: stopTimesError } = await supabase
-        .from("stop_times")
-        .select("stop_id")
-        .in("trip_id", tripIds);
-
-      if (stopTimesError || !stopTimes) {
-        console.error("Error fetching stop times:", stopTimesError);
-        return [];
-      }
-      console.log(stopTimes);
-      console.log(`✅ Found ${stopTimes.length} stop times for train trips`);
-      // קבל מידע על התחנות
-      const uniqueStopIds = [...new Set(stopTimes.map((st) => st.stop_id))];
-
-      const { data: stops, error: stopsError } = await supabase
-        .from("stops")
-        .select("stop_id, stop_name, location_type,stop_lat,stop_lon,stop_code")
-        .in("stop_id", uniqueStopIds);
-      // .eq("location_type", 1) // תחנות בלבד
-      // .order("stop_name");
-
-      if (stopsError || !stops) {
-        console.error("Error fetching stops:", stopsError);
-        return [];
-      }
-      console.log(stops);
-      console.log(`✅ Found ${stops.length} train stations`);
-
-      return stops.map((s) => ({
-        stop_id: s.stop_id,
-        stop_name: s.stop_name
-      }));
-    } catch (error) {
-      console.error("Exception in getTrainStations:", error);
-      return [];
-    }
-  }
-
-  /**
    * יצירת נסיעת רכבת
    */
-  static async createTrainTrip(params: {
+static async createTrainTrip(params: {
     userId: string;
     originStopId: string;
     destinationStopId: string;
@@ -947,162 +750,84 @@ export class GTFSService {
     message?: string;
   }> {
     try {
-      console.log("=== CREATING TRAIN TRIP ===");
-      console.log("Params:", params);
+      console.log("=== CREATING TRAIN TRIP (OPTIMIZED) ===");
+      console.log("From:", params.originStopId, "To:", params.destinationStopId);
 
-      // מצא trip שעובר בשתי התחנות
-      const { data: routes, error: routesError } = await supabase
-        .from("routes")
-        .select("route_id")
-        .eq("agency_id", params.agencyId)
-        .limit(100);
-
-      console.log(routes);
-
-      if (routesError || !routes || routes.length === 0) {
-        return {
-          success: false,
-          message: "לא נמצאו רכבות"
-        };
-      }
-
-      const routeTripPairs = await Promise.all(
-        routes.map(async (route) => {
-          const { data: trips, error: tripsError } = await supabase
-            .from("trips")
-            .select("route_id, trip_id")
-            .eq("route_id", route.route_id);
-
-          if (tripsError || !trips || trips.length === 0) {
-            return null;
-          }
-
-          return trips.map((trip) => ({
-            route_id: route.route_id,
-            trip_id: trip.trip_id
-          }));
-        })
+      // 🚀 Query מאופטם - מחזיר רק trips שעוברים בשתי התחנות
+      const { data: validTrips, error: tripsError } = await supabase.rpc(
+        'find_train_trip_between_stops',
+        {
+          p_origin_stop: params.originStopId,
+          p_dest_stop: params.destinationStopId,
+          p_agency: params.agencyId
+        }
       );
 
-      const foundTripPairs = routeTripPairs.flat().filter((pair) => pair);
-
-      console.log("Found trip pairs:", foundTripPairs);
-
-      // חפש trip שעובר בשתי התחנות
-      let foundTrip = null;
-
-      for (const trip of foundTripPairs) {
-        const { data: stopTimes, error } = await supabase
-          .from("stop_times")
-          .select("stop_id, stop_sequence")
-          .eq("trip_id", trip?.trip_id)
-          .or(
-            `stop_id.like.${params.originStopId}%,stop_id.like.${params.destinationStopId}%`
-          )
-          .order("stop_sequence");
-
-        if (error || !stopTimes || stopTimes.length < 2) continue;
-
-        const originStop = stopTimes.find((st) =>
-          st.stop_id.startsWith(params.originStopId)
-        );
-        const destStop = stopTimes.find((st) =>
-          st.stop_id.startsWith(params.destinationStopId)
-        );
-
-        if (
-          originStop &&
-          destStop &&
-          originStop.stop_sequence < destStop.stop_sequence
-        ) {
-          foundTrip = trip;
-          break;
-        }
+      console.log("RPC result:", { validTrips, tripsError });
+      if (tripsError || !validTrips || validTrips.length === 0) {
+        console.log("❌ No trips found via RPC, trying fallback method");
+        return await this.createTrainTripFallback(params);
       }
 
-      if (!foundTrip) {
-        return {
-          success: false,
-          message: "לא נמצא מסלול רכבת מתאים"
-        };
-      }
+      const selectedTrip = validTrips[0];
+      console.log("✅ Found trip:", selectedTrip.trip_id);
 
-      // קבל קואורדינטות התחנות
+      // קבל מידע תחנות
       const { data: stops, error: stopsError } = await supabase
         .from("stops")
         .select("stop_id, stop_name, stop_lat, stop_lon")
-        .or(
-          `stop_id.eq.${params.originStopId},stop_id.eq.${params.destinationStopId}`
-        );
+        .in("stop_id", [params.originStopId, params.destinationStopId]);
 
       if (stopsError || !stops || stops.length < 2) {
-        return {
-          success: false,
-          message: "לא נמצאו תחנות"
-        };
+        return { success: false, message: "לא נמצאו תחנות" };
       }
 
-      const origin = stops.find((s) => s.stop_id === params.originStopId);
-      const destination = stops.find(
-        (s) => s.stop_id === params.destinationStopId
-      );
+      const origin = stops.find(s => s.stop_id === params.originStopId)!;
+      const destination = stops.find(s => s.stop_id === params.destinationStopId)!;
 
-      if (!origin || !destination) {
-        return {
-          success: false,
-          message: "שגיאה בנתוני תחנות"
-        };
-      }
-
-      // חשב מחיר (רכבת לפי מרחק - כ-10 ש"ח + 0.15 ש"ח לק"מ)
+      // חשב מחיר
       const distance = this.calculateDistance(
-        origin.stop_lat,
-        origin.stop_lon,
-        destination.stop_lat,
-        destination.stop_lon
+        parseFloat(origin.stop_lat),
+        parseFloat(origin.stop_lon),
+        parseFloat(destination.stop_lat),
+        parseFloat(destination.stop_lon)
       );
       const price = Math.round((10 + distance * 0.15) * 10) / 10;
 
-      // צור נסיעה במערכת rides
-      const confirmationCode = `TRAIN_${Math.floor(
-        10000 + Math.random() * 90000
-      )}`;
-
-      const rideData = {
-        user_id: params.userId,
-        trip_id: foundTrip.trip_id,
-        direction_id: 0,
-        start_stop_id: params.originStopId,
-        end_stop_id: params.destinationStopId,
-        boarding_coordinates: { lat: origin.stop_lat, lon: origin.stop_lon },
-        alighting_coordinates: {
-          lat: destination.stop_lat,
-          lon: destination.stop_lon
-        },
-        agency_id: params.agencyId,
-        line_number: "רכבת",
-        bus_code: "TRAIN",
-        start_time: new Date(),
-        amount: price,
-        expires_at: new Date(Date.now() + 90 * 60 * 1000),
-        confirmation_code: confirmationCode
-      };
+      // צור נסיעה
+      const confirmationCode = `TRAIN_${Math.floor(10000 + Math.random() * 90000)}`;
 
       const { data: ride, error: rideError } = await supabase
         .from("rides")
-        .insert(rideData)
+        .insert({
+          user_id: params.userId,
+          trip_id: selectedTrip.trip_id,
+          direction_id: 0,
+          start_stop_id: params.originStopId,
+          end_stop_id: params.destinationStopId,
+          boarding_coordinates: { 
+            lat: parseFloat(origin.stop_lat), 
+            lon: parseFloat(origin.stop_lon) 
+          },
+          alighting_coordinates: {
+            lat: parseFloat(destination.stop_lat),
+            lon: parseFloat(destination.stop_lon)
+          },
+          agency_id: params.agencyId,
+          line_number: "רכבת",
+          bus_code: "TRAIN",
+          start_time: new Date(),
+          amount: price,
+          expires_at: new Date(Date.now() + 90 * 60 * 1000),
+          confirmation_code: confirmationCode
+        })
         .select()
         .single();
 
       if (rideError) {
-        console.error("Error creating train ride:", rideError);
-        return {
-          success: false,
-          message: "שגיאה ביצירת הנסיעה"
-        };
+        console.error("❌ Error creating ride:", rideError);
+        return { success: false, message: "שגיאה ביצירת הנסיעה" };
       }
-
-      console.log("✅ Train trip created successfully");
 
       return {
         success: true,
@@ -1111,16 +836,215 @@ export class GTFSService {
         price: price
       };
     } catch (error) {
-      console.error("Exception in createTrainTrip:", error);
-      return {
-        success: false,
-        message: "שגיאה כללית"
-      };
+      console.error("❌ Exception in createTrainTrip:", error);
+      return { success: false, message: "שגיאה כללית" };
     }
   }
 
   /**
-   * חישוב מרחק בין שתי נקודות (נוסחת Haversine)
+   * 🔧 Fallback method - אם אין RPC function
+   * משתמש ב-query מאופטם עם subqueries
+   */
+ static async createTrainTripFallback(params: {
+    userId: string;
+    originStopId: string;
+    destinationStopId: string;
+    agencyId: string;
+  }) {
+    try {
+      console.log("🔄 Using fallback method with optimized query");
+
+      // 🔧 תיקון: Query מתוקן שמחזיר את כל stop_times עם trip_id
+      const { data: stopTimesData, error: stopError } = await supabase
+        .from("stop_times")
+        .select("trip_id, stop_id, stop_sequence")
+        .in("stop_id", [params.originStopId, params.destinationStopId])
+        .order("trip_id")
+        .order("stop_sequence");
+
+      if (stopError || !stopTimesData || stopTimesData.length === 0) {
+        console.error("❌ No stop times found");
+        return { success: false, message: "לא נמצאו תחנות במערכת" };
+      }
+
+      console.log(`✅ Found ${stopTimesData.length} stop time records`);
+
+      // קבץ לפי trip_id
+      const tripGroups = new Map<string, typeof stopTimesData>();
+      stopTimesData.forEach(st => {
+        if (!tripGroups.has(st.trip_id)) {
+          tripGroups.set(st.trip_id, []);
+        }
+        tripGroups.get(st.trip_id)!.push(st);
+      });
+
+      console.log(`✅ Found ${tripGroups.size} potential trips`);
+
+      // מצא trip שיש בו שתי התחנות בסדר הנכון
+      let selectedTripId: string | null = null;
+
+      for (const [tripId, stops] of tripGroups) {
+        if (stops.length < 2) continue;
+
+        const originStop = stops.find(s => s.stop_id === params.originStopId);
+        const destStop = stops.find(s => s.stop_id === params.destinationStopId);
+
+        if (originStop && destStop && originStop.stop_sequence < destStop.stop_sequence) {
+          selectedTripId = tripId;
+          console.log(`✅ Found matching trip: ${tripId} (seq ${originStop.stop_sequence} -> ${destStop.stop_sequence})`);
+          break;
+        }
+      }
+
+      if (!selectedTripId) {
+        console.error("❌ No valid trip found");
+        console.log("Debug - Trip groups:", Array.from(tripGroups.entries()).slice(0, 3));
+        return { success: false, message: "לא נמצא מסלול רכבת מתאים" };
+      }
+
+      // וודא שה-trip שייך לרכבת ישראל
+      const { data: tripCheck, error: tripCheckError } = await supabase
+        .from("trips")
+        .select(`
+          trip_id,
+          routes!inner(agency_id)
+        `)
+        .eq("trip_id", selectedTripId)
+        .eq("routes.agency_id", params.agencyId)
+        .single();
+
+      if (tripCheckError || !tripCheck) {
+        console.error("❌ Trip not from correct agency");
+        return { success: false, message: "מסלול לא שייך לרכבת ישראל" };
+      }
+
+      console.log("✅ Trip verified for agency:", params.agencyId);
+
+      // המשך כמו בשיטה הרגילה...
+      const { data: stops, error: stopsError } = await supabase
+        .from("stops")
+        .select("stop_id, stop_name, stop_lat, stop_lon")
+        .in("stop_id", [params.originStopId, params.destinationStopId]);
+
+      if (stopsError || !stops || stops.length < 2) {
+        return { success: false, message: "לא נמצאו תחנות" };
+      }
+
+      const origin = stops.find(s => s.stop_id === params.originStopId)!;
+      const destination = stops.find(s => s.stop_id === params.destinationStopId)!;
+
+      const distance = this.calculateDistance(
+        parseFloat(origin.stop_lat),
+        parseFloat(origin.stop_lon),
+        parseFloat(destination.stop_lat),
+        parseFloat(destination.stop_lon)
+      );
+      const price = Math.round((10 + distance * 0.15) * 10) / 10;
+
+      const confirmationCode = `TRAIN_${Math.floor(10000 + Math.random() * 90000)}`;
+
+      const { data: ride, error: rideError } = await supabase
+        .from("rides")
+        .insert({
+          user_id: params.userId,
+          trip_id: selectedTripId,
+          direction_id: 0,
+          start_stop_id: params.originStopId,
+          end_stop_id: params.destinationStopId,
+          boarding_coordinates: { 
+            lat: parseFloat(origin.stop_lat), 
+            lon: parseFloat(origin.stop_lon) 
+          },
+          alighting_coordinates: {
+            lat: parseFloat(destination.stop_lat),
+            lon: parseFloat(destination.stop_lon)
+          },
+          agency_id: params.agencyId,
+          line_number: "רכבת",
+          bus_code: "TRAIN",
+          start_time: new Date(),
+          amount: price,
+          expires_at: new Date(Date.now() + 90 * 60 * 1000),
+          confirmation_code: confirmationCode
+        })
+        .select()
+        .single();
+
+      if (rideError) {
+        console.error("❌ Error creating ride:", rideError);
+        return { success: false, message: "שגיאה ביצירת הנסיעה" };
+      }
+
+      console.log("✅ Train trip created successfully!");
+
+      return {
+        success: true,
+        tripId: ride.id,
+        confirmationCode: confirmationCode,
+        price: price
+      };
+    } catch (error) {
+      console.error("❌ Exception in fallback:", error);
+      return { success: false, message: "שגיאה כללית" };
+    }
+  }
+
+
+  /**
+   * 🚀 קבלת תחנות רכבת - גרסה מאופטמת
+   * במקום 3 queries, רק 1 query עם join
+   */
+ static async getTrainStations(): Promise<Array<{
+    stop_id: string;
+    stop_name: string;
+  }>> {
+    try {
+      // Query מאופטם שמחזיר רק תחנות של רכבת ישראל
+      const { data: trainStops, error } = await supabase
+        .from("stop_times")
+        .select(`
+          stops!inner(
+            stop_id,
+            stop_name
+          ),
+          trips!inner(
+            routes!inner(
+              agency_id
+            )
+          )
+        `)
+        .eq("trips.routes.agency_id", "2")
+        .limit(1000);
+
+      if (error || !trainStops) {
+        console.error("Error fetching train stations:", error);
+        return [];
+      }
+
+      // הסר כפילויות
+      const uniqueStops = new Map<string, string>();
+      trainStops.forEach(item => {
+        const stop = Array.isArray(item.stops) ? item.stops[0] : item.stops;
+        if (stop && stop.stop_id) {
+          uniqueStops.set(stop.stop_id, stop.stop_name);
+        }
+      });
+
+      const result = Array.from(uniqueStops.entries()).map(([stop_id, stop_name]) => ({
+        stop_id,
+        stop_name
+      }));
+
+      console.log(`✅ Found ${result.length} unique train stations`);
+      return result;
+    } catch (error) {
+      console.error("Exception in getTrainStations:", error);
+      return [];
+    }
+  }
+
+  /**
+   * חישוב מרחק
    */
   static calculateDistance(
     lat1: number,
@@ -1128,7 +1052,7 @@ export class GTFSService {
     lat2: number,
     lon2: number
   ): number {
-    const R = 6371; // רדיוס כדור הארץ בק"מ
+    const R = 6371;
     const dLat = ((lat2 - lat1) * Math.PI) / 180;
     const dLon = ((lon2 - lon1) * Math.PI) / 180;
     const a =
