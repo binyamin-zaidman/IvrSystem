@@ -17,13 +17,6 @@ app.use(bodyParser.json());
 
 // Logging middleware
 app.use((req, res, next) => {
-  console.log("============================================================");
-  console.log("📞 בקשה חדשה!");
-  console.log(`זמן: ${new Date().toLocaleString("he-IL")}`);
-  console.log(`Method: ${req.method}`);
-  console.log(`URL: ${req.url}`);
-  console.log("Headers:", req.headers);
-  console.log("Query:", req.query);
   console.log("Body:", req.body);
   console.log("============================================================");
   next();

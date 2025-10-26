@@ -13,6 +13,4 @@ router.post("/webhook/handleAll", IVRController.handleAll);
 // router.post("/webhook/alighting", IVRController.selectAlightingStop);
 
 
-console.log("📞 IVR Routes initialized");
-
 export default router;

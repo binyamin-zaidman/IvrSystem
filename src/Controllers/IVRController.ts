@@ -37,9 +37,7 @@ export class IVRController {
       // טיפול לפי השלב הנוכחי
       switch (session.step) {
         case "START":
-          
         case "SELECT_LINE":
-
           const { LINE } = req.body;
           if (LINE) {
             console.log(`✅ Handling LINE selection: ${LINE}`);
@@ -62,7 +60,7 @@ export class IVRController {
           }
           break;
 
-        // 🆕 בחירת אזור רכבת
+        // רכבת - בחירת אזור
         case "SELECT_TRAIN_REGION":
           const { TRAIN_REGION } = req.body;
           if (TRAIN_REGION) {
@@ -76,6 +74,7 @@ export class IVRController {
           }
           break;
 
+        // רכבת - תחנת מוצא
         case "SELECT_TRAIN_ORIGIN":
           const { TRAIN_ORIGIN } = req.body;
           if (TRAIN_ORIGIN) {
@@ -98,6 +97,21 @@ export class IVRController {
           }
           break;
 
+        // 🆕 רכבת - בחירת אזור יעד
+        case "SELECT_TRAIN_DEST_REGION":
+          const { TRAIN_REGION: DEST_REGION } = req.body;
+          if (DEST_REGION) {
+            console.log(`✅ Handling TRAIN_DEST_REGION selection: ${DEST_REGION}`);
+            response = await IVRService.handleTrainDestRegionSelection(
+              ApiPhone,
+              DEST_REGION
+            );
+          } else {
+            response = IVRService.getTrainRegionsList(ApiPhone);
+          }
+          break;
+
+        // רכבת - תחנת יעד
         case "SELECT_TRAIN_DESTINATION":
           const { TRAIN_DESTINATION } = req.body;
           if (TRAIN_DESTINATION) {
@@ -107,89 +121,34 @@ export class IVRController {
               TRAIN_DESTINATION
             );
           } else {
-            const region = session.trainRegion;
-            if (!region) {
+            const destRegion = session.trainDestRegion;
+            if (!destRegion) {
               response = "id_list_message=t-אירעה שגיאה\nhangup=yes";
             } else {
               response = await IVRService.getTrainStationsByRegion(
                 ApiPhone,
-                region,
+                destRegion,
                 "destination"
               );
             }
           }
           break;
 
+        // אוטובוס - בחירת חברה (עם תמיכה במספרים דו-ספרתיים)
         case "SELECT_AGENCY":
-          const { AGENCY } = req.body;
-          if (AGENCY) {
-            console.log(`✅ Handling AGENCY selection: ${AGENCY}`);
-            response = await IVRService.handleAgencySelection(ApiPhone, AGENCY);
+          const { AGENCY, SELECT_AGENCY } = req.body;
+          const agencyValue = AGENCY || SELECT_AGENCY;
+          
+          if (agencyValue) {
+            console.log(`✅ Handling AGENCY selection: ${agencyValue}`);
+            response = await IVRService.handleAgencySelection(ApiPhone, agencyValue);
           } else {
-            response =
-              "id_list_message=t-לא התקבלה בחירה. אנא בחר חברה\nhangup=yes";
+            console.error(`❌ No AGENCY value received. Body:`, req.body);
+            response = "id_list_message=t-לא התקבלה בחירה. אנא בחר חברה\nhangup=yes";
           }
           break;
 
-       // 🆕 בחירת דף חברות (למקרה של יותר מ-8 חברות)
-//         case "SELECT_AGENCY_PAGE": {
-//   try {
-//     const { AGENCY_PAGE } = req.body;
-//     if (!AGENCY_PAGE) {
-//       response = "id_list_message=t-לא התקבלה בחירה\nhangup=yes";
-//       break;
-//     }
-
-//     const pageIndex = parseInt(AGENCY_PAGE);
-//     const currentSession = IVRService.getOrCreateSession(ApiPhone);
-
-//     if (!currentSession.agencies || !currentSession.lineNumber) {
-//       console.error("❌ Missing agencies or lineNumber in session");
-//       response = "id_list_message=t-אירעה שגיאה\nhangup=yes";
-//       break;
-//     }
-
-//     const currentPage = currentSession.agencyPage || 0;
-//     const itemsPerPage = 8;
-//     const startIndex = currentPage * itemsPerPage;
-//     const hasMorePages = startIndex + itemsPerPage < currentSession.agencies.length;
-
-//     console.log(
-//       `📄 Page ${currentPage}: pageIndex=${pageIndex}, hasMore=${hasMorePages}, totalAgencies=${currentSession.agencies.length}`
-//     );
-
-//     if (pageIndex === 9 && hasMorePages) {
-//       // עמוד הבא
-//       const nextPage = currentPage + 1;
-//       console.log(`✅ Moving to next page: ${nextPage}`);
-//       IVRService.updateSession(ApiPhone, { agencyPage: nextPage });
-//       response = IVRService.showAgencyPage(ApiPhone, nextPage);
-
-//     } else if (pageIndex >= 0 && pageIndex <= 7) {
-//       // בחירת חברה (0–7 בלבד)
-//       const actualIndex = currentPage * itemsPerPage + pageIndex;
-//       console.log(
-//         `✅ Selected agency: page=${currentPage}, button=${pageIndex}, actualIndex=${actualIndex}`
-//       );
-
-//       if (actualIndex < currentSession.agencies.length) {
-//         response = await IVRService.handleAgencySelection(ApiPhone, actualIndex.toString());
-//       } else {
-//         console.error(`❌ Invalid index: ${actualIndex} >= ${currentSession.agencies.length}`);
-//         response = IVRService.showAgencyPage(ApiPhone, currentPage);
-//       }
-
-//     } else {
-//       console.error(`❌ Invalid pageIndex: ${pageIndex}`);
-//       response = IVRService.showAgencyPage(ApiPhone, currentPage);
-//     }
-//   } catch (err) {
-//     console.error("⚠️ Error in SELECT_AGENCY_PAGE:", err);
-//     response = "id_list_message=t-שגיאה פנימית\nhangup=yes";
-//   }
-//   break;
-// }
-
+        // אוטובוס - בחירת כיוון
         case "SELECT_DIRECTION":
           const { DIRECTION } = req.body;
           if (DIRECTION) {
@@ -202,11 +161,11 @@ export class IVRController {
               directionValue
             );
           } else {
-            response =
-              "id_list_message=t-לא התקבלה בחירה. אנא בחר כיוון\nhangup=yes";
+            response = "id_list_message=t-לא התקבלה בחירה. אנא בחר כיוון\nhangup=yes";
           }
           break;
 
+        // בחירת שיטת הזנת תחנות
         case "SELECT_STOP_METHOD":
           const { STOP_METHOD } = req.body;
           if (STOP_METHOD) {
@@ -220,6 +179,7 @@ export class IVRController {
           }
           break;
 
+        // הקשת מספר תחנת עלייה
         case "ENTER_BOARDING_CODE":
           const { BOARDING_CODE } = req.body;
           if (BOARDING_CODE) {
@@ -233,6 +193,7 @@ export class IVRController {
           }
           break;
 
+        // הקשת מספר תחנת ירידה
         case "ENTER_ALIGHTING_CODE":
           const { ALIGHTING_CODE } = req.body;
           if (ALIGHTING_CODE) {
@@ -245,15 +206,13 @@ export class IVRController {
             response = "id_list_message=t-לא הוקש מספר תחנה\nhangup=yes";
           }
           break;
-          
-          default:
-            console.log(`⚠️ Unknown step: ${session.step}, restarting`);
-            response = await IVRService.handleStart(ApiPhone);
-          }
-          
-          console.log("Response length:", response.length);
+
+        default:
+          console.log(`⚠️ Unknown step: ${session.step}, restarting`);
+          response = await IVRService.handleStart(ApiPhone);
+      }
+
       console.log(`📤 Response (${response.length} chars):\n${response}`);
-      
       console.log("============================================================");
 
       res
