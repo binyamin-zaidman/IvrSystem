@@ -26,7 +26,7 @@ const TRAIN_REGIONS: Record<TrainRegion, { name: string; stations: string[] }> =
     },
     jerusalem: {
       name: "ירושלים והסביבה",
-      stations: ["37322"]
+      stations: ["42286","35684","48085","48475","11037"]
     },
     south: {
       name: "דרום הארץ",
@@ -58,6 +58,20 @@ const TRAIN_REGIONS: Record<TrainRegion, { name: string; stations: string[] }> =
 // ================== פונקציות ולידציה ==================
 
 /**
+ * נרמול קלט - הופך מערך או מחרוזת למחרוזת נקייה
+ * במקרה של מערך - לוקח רק את האלמנט הראשון (מונע כפילויות מהמערכת)
+ */
+function normalizeInput(input: string | string[]): string {
+  if (Array.isArray(input)) {
+    // אם זה מערך, קח רק את האלמנט הראשון
+    // זה מטפל במקרה שהמערכת שולחת לחיצות כפולות
+    const firstValue = input.find(item => item && item.trim());
+    return firstValue || "";
+  }
+  return input || "";
+}
+
+/**
  * בדיקה שהקלט מכיל רק ספרות
  */
 function isValidDigits(input: string): boolean {
@@ -68,19 +82,22 @@ function isValidDigits(input: string): boolean {
  * בדיקה שהקלט הוא מספר שלם תקין
  */
 function parseValidInteger(
-  input: string,
+  input: string | string[],
   min: number = 0,
   max?: number
 ): number | null {
-  if (!isValidDigits(input)) {
-    console.warn(`⚠️ Invalid input (not digits): "${input}"`);
+  // נרמול הקלט
+  const normalized = normalizeInput(input);
+  
+  if (!normalized || !isValidDigits(normalized)) {
+    console.warn(`⚠️ Invalid input (not digits): "${normalized}"`);
     return null;
   }
 
-  const num = parseInt(input, 10);
+  const num = parseInt(normalized, 10);
 
   if (isNaN(num)) {
-    console.warn(`⚠️ Invalid number: "${input}"`);
+    console.warn(`⚠️ Invalid number: "${normalized}"`);
     return null;
   }
 
@@ -163,7 +180,7 @@ export class IVRService {
 
   static async handleTransportTypeSelection(
     phone: string,
-    transportType: string
+    transportType: string | string[]
   ): Promise<string> {
     const type = parseValidInteger(transportType, 1, 2);
 
@@ -178,9 +195,9 @@ export class IVRService {
       this.updateSession(phone, {
         transportType: "train",
         agencyId: "2",
-        step: "SELECT_TRAIN_REGION"
+        step: "SELECT_TRAIN_ORIGIN"
       });
-      return this.getTrainRegionsList(phone);
+      return await this.getTrainRegionsList(phone, "origin");
     } else {
       const message = `t-בחירה לא חוקית.t-לחץ 1 לאוטובוס.t-לחץ 2 לרכבת`;
       return `read=${message}=TRANSPORT_TYPE,yes,1,1,30,Digits,no,no`;
@@ -189,34 +206,47 @@ export class IVRService {
 
   // ================== רכבת ==================
 
-  static getTrainRegionsList(phone: string): string {
-    let message = "t-אנא בחר אזור";
-    message += ".t-הקש 1 לתל אביב והמרכז";
-    message += ".t-הקש 2 לירושלים והסביבה";
-    message += ".t-הקש 3 לדרום הארץ";
-    message += ".t-הקש 4 לצפון הארץ";
-    return `read=${message}=TRAIN_REGION,yes,1,1,30,Digits,no,no`;
+  static getTrainRegionsList(phone: string, type: "origin" | "destination"): string {
+  const messageType = type === "origin" ? "תחנת מוצא" : "תחנת יעד";
+  let message = `t-בחר אזור ל${messageType}`;
+  message += ".t-הקש 1 לתל אביב והמרכז";
+  message += ".t-הקש 2 לירושלים והסביבה";
+  message += ".t-הקש 3 לדרום הארץ";
+  message += ".t-הקש 4 לצפון הארץ";
+  
+  // ✅ תיקון: שימוש בשמות משתנים נכונים
+  const varName = type === "origin" ? "TRAIN_REGION_ORIGIN" : "TRAIN_REGION_DEST";
+  return `read=${message}=${varName},yes,1,1,30,Digits,no,no`;
+}
+static async handleTrainOriginRegionSelection(
+  phone: string,
+  regionIndex: string | string[]
+): Promise<string> {
+  const regions: TrainRegion[] = ["center", "jerusalem", "south", "north"];
+  const normalizedInput = normalizeInput(regionIndex);
+  
+  console.log(`🚂 Train origin region selection - input: ${Array.isArray(regionIndex) ? regionIndex.join(',') : regionIndex}`);
+  console.log(`📥 Normalized: "${normalizedInput}"`);
+  
+  const index = parseValidInteger(normalizedInput, 1, 4);
+
+  if (index === null || index < 1 || index > regions.length) {
+    return this.getTrainRegionsList(phone, "origin");
   }
 
-  static async handleTrainRegionSelection(
-    phone: string,
-    regionIndex: string
-  ): Promise<string> {
-    const regions: TrainRegion[] = ["center", "jerusalem", "south", "north"];
-    const index = parseValidInteger(regionIndex, 1, 4);
+  const selectedRegion = regions[index - 1];
+  console.log(`✅ Selected origin region: ${selectedRegion}`);
+  
+  // ✅ תיקון: עדכון ל-SELECT_TRAIN_ORIGIN כדי להציג תחנות
+  this.updateSession(phone, {
+    trainRegion: selectedRegion,
+    step: "SELECT_TRAIN_ORIGIN"
+  });
 
-    if (index === null || index < 1 || index > regions.length) {
-      return this.getTrainRegionsList(phone);
-    }
+  // ✅ הצגת תחנות באזור שנבחר
+  return await this.getTrainStationsByRegion(phone, selectedRegion, "origin");
+}
 
-    const selectedRegion = regions[index - 1];
-    this.updateSession(phone, {
-      trainRegion: selectedRegion,
-      step: "SELECT_TRAIN_ORIGIN"
-    });
-
-    return await this.getTrainStationsByRegion(phone, selectedRegion, "origin");
-  }
 
   static async getTrainStationsByRegion(
     phone: string,
@@ -225,12 +255,18 @@ export class IVRService {
   ): Promise<string> {
     try {
       const regionData = TRAIN_REGIONS[region];
+      console.log(`🚂 Getting stations for region: ${region}, type: ${type}`);
+      console.log(`📍 Region stations IDs:`, regionData.stations);
+      
       const allStations = await GTFSService.getTrainStations();
+      console.log(`📊 Total train stations from DB: ${allStations.length}`);
 
       const regionalStations = allStations.filter((station) =>
         regionData.stations.includes(station.stop_id)
       );
 
+      console.log(`✅ Found ${regionalStations.length} stations in region ${region}`);
+      
       if (regionalStations.length === 0) {
         console.log(`❌ No stations found for region ${region}`);
         return "id_list_message=t-לא נמצאו תחנות באזור זה אנא בחר אזור אחר\nhangup=yes";
@@ -238,25 +274,25 @@ export class IVRService {
 
       this.updateSession(phone, { trainStations: regionalStations });
 
-      const messageType = type === "origin" ? "מוצא" : "יעד";
-      let message = `t-${messageType}`;
+      const messageType = type === "origin" ? "תחנת מוצא" : "תחנת יעד";
+      let message = `t-בחר ${messageType} באזור ${regionData.name}`;
 
-      regionalStations.slice(0, 9).forEach((station, index) => {
-        const cleanName = cleanTextForIVR(station.stop_name, 15);
-        message += `.t-${cleanName} ${index}`;
+      regionalStations.forEach((station, index) => {
+        const cleanName = cleanTextForIVR(station.stop_name, 20);
+        message += `.t-${cleanName} הקש ${index + 1}`;
       });
 
       const varName = type === "origin" ? "TRAIN_ORIGIN" : "TRAIN_DESTINATION";
-      return `read=${message}=${varName},yes,1,1,30,Digits,no,no`;
+      return `read=${message}=${varName},yes,2,1,30,Digits,no,no`;
     } catch (error) {
-      console.error("Error getting regional stations:", error);
+      console.error("❌ Error getting regional stations:", error);
       return "id_list_message=t-אירעה שגיאה\nhangup=yes";
     }
   }
 
   static async handleTrainOriginSelection(
     phone: string,
-    stationIndex: string
+    stationIndex: string | string[]
   ): Promise<string> {
     const session = this.getOrCreateSession(phone);
 
@@ -264,12 +300,20 @@ export class IVRService {
       return "id_list_message=t-אירעה שגיאה\nhangup=yes";
     }
 
+    // נרמול הקלט
+    const normalizedInput = normalizeInput(stationIndex);
+    console.log(`🚂 Train origin selection - input: ${Array.isArray(stationIndex) ? stationIndex.join(',') : stationIndex}`);
+    console.log(`📥 Normalized: "${normalizedInput}"`);
+    console.log(`📊 Available stations: ${session.trainStations.length}`);
+
     const index = parseValidInteger(
-      stationIndex,
-      0,
-      session.trainStations.length - 1
+      normalizedInput,
+      1,
+      session.trainStations.length
     );
+    
     if (index === null) {
+      console.warn(`⚠️ Invalid station index: "${normalizedInput}"`);
       return await this.getTrainStationsByRegion(
         phone,
         session.trainRegion,
@@ -277,7 +321,8 @@ export class IVRService {
       );
     }
 
-    const originStation = session.trainStations[index];
+    const originStation = session.trainStations[index - 1];
+    console.log(`✅ Selected origin station: ${originStation.stop_name} (${originStation.stop_id})`);
 
     this.updateSession(phone, {
       trainOriginStopId: originStation.stop_id,
@@ -285,22 +330,18 @@ export class IVRService {
       step: "SELECT_TRAIN_DEST_REGION"
     });
 
-    // 🆕 שאל שוב לאיזה אזור הוא רוצה לנסוע
-    return this.getTrainRegionsList(phone);
+    return this.getTrainRegionsList(phone, "destination");
   }
 
-  /**
-   * 🆕 בחירת אזור יעד
-   */
   static async handleTrainDestRegionSelection(
     phone: string,
-    regionIndex: string
+    regionIndex: string | string[]
   ): Promise<string> {
     const regions: TrainRegion[] = ["center", "jerusalem", "south", "north"];
     const index = parseValidInteger(regionIndex, 1, 4);
 
     if (index === null || index < 1 || index > regions.length) {
-      return this.getTrainRegionsList(phone);
+      return this.getTrainRegionsList(phone, "destination");
     }
 
     const selectedRegion = regions[index - 1];
@@ -318,7 +359,7 @@ export class IVRService {
 
   static async handleTrainDestinationSelection(
     phone: string,
-    stationIndex: string
+    stationIndex: string | string[]
   ): Promise<string> {
     const session = this.getOrCreateSession(phone);
 
@@ -330,12 +371,19 @@ export class IVRService {
       return "id_list_message=t-אירעה שגיאה\nhangup=yes";
     }
 
+    // נרמול הקלט
+    const normalizedInput = normalizeInput(stationIndex);
+    console.log(`🚂 Train destination selection - input: ${Array.isArray(stationIndex) ? stationIndex.join(',') : stationIndex}`);
+    console.log(`📥 Normalized: "${normalizedInput}"`);
+
     const index = parseValidInteger(
-      stationIndex,
-      0,
-      session.trainStations.length - 1
+      normalizedInput,
+      1,
+      session.trainStations.length
     );
+    
     if (index === null) {
+      console.warn(`⚠️ Invalid station index: "${normalizedInput}"`);
       return await this.getTrainStationsByRegion(
         phone,
         session.trainDestRegion,
@@ -343,7 +391,8 @@ export class IVRService {
       );
     }
 
-    const destinationStation = session.trainStations[index];
+    const destinationStation = session.trainStations[index - 1];
+    console.log(`✅ Selected destination station: ${destinationStation.stop_name} (${destinationStation.stop_id})`);
 
     if (destinationStation.stop_id === session.trainOriginStopId) {
       return "read=t-תחנת היעד זהה לתחנת המוצא אנא בחר תחנה אחרת=TRAIN_DESTINATION,yes,1,1,30,Digits,no,no";
@@ -392,44 +441,40 @@ export class IVRService {
 
   static async handleLineSelection(
     phone: string,
-    lineNumber: string
+    lineNumber: string | string[]
   ): Promise<string> {
-    // ולידציה: רק ספרות
-    if (!isValidDigits(lineNumber)) {
+    const normalized = normalizeInput(lineNumber);
+    
+    if (!isValidDigits(normalized)) {
       return "read=t-מספר קו לא תקין אנא הקש מספר קו תקין=LINE,yes,3,1,30,Digits,no,no";
     }
 
-    // הסר אפסים מובילים
-    lineNumber = lineNumber.replace(/^0+/, "") || "0";
+    const cleanedLine = normalized.replace(/^0+/, "") || "0";
 
     try {
-      const agencies = await GTFSService.getLineBusAgencies(lineNumber);
+      const agencies = await GTFSService.getLineBusAgencies(cleanedLine);
 
       if (agencies.length === 0) {
         return "read=t-מצטערים קו זה לא נמצא במערכת אנא הקש את מספר הקו שברצונך לנסוע בו=LINE,yes,3,1,30,Digits,no,no";
       }
 
-      // שמור את החברות בסשן
       this.updateSession(phone, {
-        lineNumber,
+        lineNumber: cleanedLine,
         agencies,
         step: "SELECT_AGENCY"
       });
 
-      // חברה אחת - דלג לבחירת כיוון
       if (agencies.length === 1) {
         return await this.handleAgencySelection(phone, "1");
       }
-      let message = `t-קו ${lineNumber}`;
+      
+      let message = `t-קו ${cleanedLine}`;
 
       agencies.forEach((agency, index) => {
         const cleanName = cleanTextForIVR(agency.agency_name, 15);
         message += `.t-ל ${cleanName} הקש ${index + 1}`;
       });
-      console.log(
-        "⚠️ More than 8 agencies, sending simplified message:",
-        message
-      );
+      
       return `read=${message}=AGENCY,yes,2,1,60,Digits,no,no`;
     } catch (error) {
       console.error("Error in handleLineSelection:", error);
@@ -439,7 +484,7 @@ export class IVRService {
 
   static async handleAgencySelection(
     phone: string,
-    agencyIndex: string
+    agencyIndex: string | string[]
   ): Promise<string> {
     const session = this.getOrCreateSession(phone);
 
@@ -447,10 +492,16 @@ export class IVRService {
       return "id_list_message=t-אירעה שגיאה אנא התחל מחדש\nhangup=yes";
     }
 
-    // ולידציה: מספר בין 1 למספר החברות
-    const index = parseValidInteger(agencyIndex, 1, session.agencies.length);
+    // נרמול הקלט - לוקח רק את האלמנט הראשון אם זה מערך
+    const normalizedInput = normalizeInput(agencyIndex);
+    
+    console.log(`✅ Handling AGENCY selection: ${Array.isArray(agencyIndex) ? agencyIndex.join(',') : agencyIndex}`);
+    console.log(`📥 Normalized input: "${normalizedInput}"`);
+
+    const index = parseValidInteger(normalizedInput, 1, session.agencies.length);
 
     if (index === null) {
+      console.warn(`⚠️ Invalid agency index: "${normalizedInput}"`);
       let message = `t-בחירה לא חוקית אנא הקש מספר בין 1 ל ${session.agencies.length}`;
       return `read=${message}=AGENCY,yes,2,1,30,Digits,no,no`;
     }
@@ -497,7 +548,7 @@ export class IVRService {
 
   static async handleDirectionSelection(
     phone: string,
-    directionIndex: string
+    directionIndex: string | string[]
   ): Promise<string> {
     const session = this.getOrCreateSession(phone);
 
@@ -551,7 +602,7 @@ export class IVRService {
 
   static async handleStopMethodSelection(
     phone: string,
-    method: string
+    method: string | string[]
   ): Promise<string> {
     const session = this.getOrCreateSession(phone);
 
@@ -632,17 +683,17 @@ export class IVRService {
 
   static async handleBoardingCodeEntry(
     phone: string,
-    stopCode: string
+    stopCode: string | string[]
   ): Promise<string> {
     const session = this.getOrCreateSession(phone);
+    const normalized = normalizeInput(stopCode);
 
-    // ולידציה
-    if (!isValidDigits(stopCode)) {
+    if (!isValidDigits(normalized)) {
       return "read=t-מספר תחנה לא תקין אנא הקש מספרים בלבד=BOARDING_CODE,yes,5,1,30,Digits,no,no";
     }
 
     try {
-      const stop = await GTFSService.searchStopByCode(stopCode);
+      const stop = await GTFSService.searchStopByCode(normalized);
 
       if (!stop) {
         return "read=t-מספר תחנה לא נמצא אנא הקש שוב את מספר תחנת העלייה=BOARDING_CODE,yes,5,1,30,Digits,no,no";
@@ -677,7 +728,7 @@ export class IVRService {
 
   static async handleAlightingCodeEntry(
     phone: string,
-    stopCode: string
+    stopCode: string | string[]
   ): Promise<string> {
     const session = this.getOrCreateSession(phone);
 
@@ -685,13 +736,14 @@ export class IVRService {
       return "id_list_message=t-אירעה שגיאה\nhangup=yes";
     }
 
-    // ולידציה
-    if (!isValidDigits(stopCode)) {
+    const normalized = normalizeInput(stopCode);
+
+    if (!isValidDigits(normalized)) {
       return "read=t-מספר תחנה לא תקין אנא הקש מספרים בלבד=ALIGHTING_CODE,yes,5,1,30,Digits,no,no";
     }
 
     try {
-      const stop = await GTFSService.searchStopByCode(stopCode);
+      const stop = await GTFSService.searchStopByCode(normalized);
 
       if (!stop) {
         return "read=t-מספר תחנה לא נמצא אנא הקש שוב את מספר תחנת הירידה=ALIGHTING_CODE,yes,5,1,30,Digits,no,no";
@@ -759,4 +811,4 @@ export class IVRService {
     this.clearSession(phone);
     console.log(`📞 שיחה הסתיימה עבור ${phone}`);
   }
-}
+} 

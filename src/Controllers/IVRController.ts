@@ -2,23 +2,17 @@ import { Request, Response } from "express";
 import { IVRService } from "../Services/IVRService";
 
 export class IVRController {
-  /**
-   * פונקציה כללית לטיפול בכל שלבי השיחה
-   * Route: POST /ivr/webhook/handleAll
-   */
   static async handleAll(req: Request, res: Response) {
     console.log("📲 Incoming IVR request:", JSON.stringify(req.body, null, 2));
 
     try {
       const { ApiPhone, hangup } = req.body;
 
-      // ניתוק שיחה
       if (hangup === "yes") {
         IVRService.handleHangup(ApiPhone);
         return res.status(200).send("ok");
       }
 
-      // בדיקה שיש טלפון
       if (!ApiPhone) {
         console.error("❌ No phone number");
         return res
@@ -34,7 +28,6 @@ export class IVRController {
 
       let response: string;
 
-      // טיפול לפי השלב הנוכחי
       switch (session.step) {
         case "START":
         case "SELECT_LINE":
@@ -50,7 +43,9 @@ export class IVRController {
         case "SELECT_TRANSPORT_TYPE":
           const { TRANSPORT_TYPE } = req.body;
           if (TRANSPORT_TYPE) {
-            console.log(`✅ Handling TRANSPORT_TYPE selection: ${TRANSPORT_TYPE}`);
+            console.log(
+              `✅ Handling TRANSPORT_TYPE selection: ${TRANSPORT_TYPE}`
+            );
             response = await IVRService.handleTransportTypeSelection(
               ApiPhone,
               TRANSPORT_TYPE
@@ -60,67 +55,72 @@ export class IVRController {
           }
           break;
 
-        // רכבת - בחירת אזור
-        case "SELECT_TRAIN_REGION":
-          const { TRAIN_REGION } = req.body;
-          if (TRAIN_REGION) {
-            console.log(`✅ Handling TRAIN_REGION selection: ${TRAIN_REGION}`);
-            response = await IVRService.handleTrainRegionSelection(
-              ApiPhone,
-              TRAIN_REGION
-            );
-          } else {
-            response = IVRService.getTrainRegionsList(ApiPhone);
-          }
-          break;
-
-        // רכבת - תחנת מוצא
         case "SELECT_TRAIN_ORIGIN":
-          const { TRAIN_ORIGIN } = req.body;
+          const { TRAIN_REGION_ORIGIN, TRAIN_ORIGIN } = req.body;
+
+          // ✅ סדר חשוב! בדוק תחילה אם יש בחירת תחנה (TRAIN_ORIGIN)
+          // כי TRAIN_REGION_ORIGIN נשאר ב-body גם אחרי שבחרנו אזור
           if (TRAIN_ORIGIN) {
+            // שלב 2: משתמש בחר תחנת מוצא
             console.log(`✅ Handling TRAIN_ORIGIN selection: ${TRAIN_ORIGIN}`);
             response = await IVRService.handleTrainOriginSelection(
               ApiPhone,
               TRAIN_ORIGIN
             );
+          } else if (TRAIN_REGION_ORIGIN) {
+            // שלב 1: משתמש בחר אזור מוצא
+            console.log(
+              `✅ Handling TRAIN_REGION_ORIGIN: ${TRAIN_REGION_ORIGIN}`
+            );
+            response = await IVRService.handleTrainOriginRegionSelection(
+              ApiPhone,
+              TRAIN_REGION_ORIGIN
+            );
           } else {
-            const region = session.trainRegion;
-            if (!region) {
-              response = "id_list_message=t-אירעה שגיאה\nhangup=yes";
+            // אין קלט - בדוק מה להציג
+            if (!session.trainRegion) {
+              // אין אזור שמור - הצג רשימת אזורים
+              response = IVRService.getTrainRegionsList(ApiPhone, "origin");
             } else {
+              // יש אזור שמור - הצג רשימת תחנות באזור
               response = await IVRService.getTrainStationsByRegion(
                 ApiPhone,
-                region,
+                session.trainRegion,
                 "origin"
               );
             }
           }
           break;
 
-        // 🆕 רכבת - בחירת אזור יעד
+        // רכבת - בחירת אזור יעד
         case "SELECT_TRAIN_DEST_REGION":
-          const { TRAIN_REGION: DEST_REGION } = req.body;
-          if (DEST_REGION) {
-            console.log(`✅ Handling TRAIN_DEST_REGION selection: ${DEST_REGION}`);
+          const { TRAIN_REGION_DEST } = req.body;
+          if (TRAIN_REGION_DEST) {
+            console.log(`✅ Handling TRAIN_REGION_DEST: ${TRAIN_REGION_DEST}`);
             response = await IVRService.handleTrainDestRegionSelection(
               ApiPhone,
-              DEST_REGION
+              TRAIN_REGION_DEST
             );
           } else {
-            response = IVRService.getTrainRegionsList(ApiPhone);
+            response = IVRService.getTrainRegionsList(ApiPhone, "destination");
           }
           break;
 
         // רכבת - תחנת יעד
         case "SELECT_TRAIN_DESTINATION":
           const { TRAIN_DESTINATION } = req.body;
+
+          // ✅ בדוק תחילה אם יש בחירת תחנת יעד
           if (TRAIN_DESTINATION) {
-            console.log(`✅ Handling TRAIN_DESTINATION selection: ${TRAIN_DESTINATION}`);
+            console.log(
+              `✅ Handling TRAIN_DESTINATION selection: ${TRAIN_DESTINATION}`
+            );
             response = await IVRService.handleTrainDestinationSelection(
               ApiPhone,
               TRAIN_DESTINATION
             );
           } else {
+            // אין קלט - הצג תחנות באזור היעד
             const destRegion = session.trainDestRegion;
             if (!destRegion) {
               response = "id_list_message=t-אירעה שגיאה\nhangup=yes";
@@ -133,18 +133,21 @@ export class IVRController {
             }
           }
           break;
-
-        // אוטובוס - בחירת חברה (עם תמיכה במספרים דו-ספרתיים)
+        // אוטובוס - בחירת חברה
         case "SELECT_AGENCY":
           const { AGENCY, SELECT_AGENCY } = req.body;
           const agencyValue = AGENCY || SELECT_AGENCY;
-          
+
           if (agencyValue) {
             console.log(`✅ Handling AGENCY selection: ${agencyValue}`);
-            response = await IVRService.handleAgencySelection(ApiPhone, agencyValue);
+            response = await IVRService.handleAgencySelection(
+              ApiPhone,
+              agencyValue
+            );
           } else {
             console.error(`❌ No AGENCY value received. Body:`, req.body);
-            response = "id_list_message=t-לא התקבלה בחירה. אנא בחר חברה\nhangup=yes";
+            response =
+              "id_list_message=t-לא התקבלה בחירה. אנא בחר חברה\nhangup=yes";
           }
           break;
 
@@ -161,7 +164,8 @@ export class IVRController {
               directionValue
             );
           } else {
-            response = "id_list_message=t-לא התקבלה בחירה. אנא בחר כיוון\nhangup=yes";
+            response =
+              "id_list_message=t-לא התקבלה בחירה. אנא בחר כיוון\nhangup=yes";
           }
           break;
 
@@ -213,7 +217,9 @@ export class IVRController {
       }
 
       console.log(`📤 Response (${response.length} chars):\n${response}`);
-      console.log("============================================================");
+      console.log(
+        "============================================================"
+      );
 
       res
         .status(200)
