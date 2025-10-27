@@ -46,6 +46,7 @@ export interface UserSession {
   
   // אוטובוס
   lineNumber?: string;
+  lineAttempts?: number; 
   agencies?: Agency[];
   agencyBatchIndex?: number; // 🔥 הוספה חדשה
   agencyId?: string;

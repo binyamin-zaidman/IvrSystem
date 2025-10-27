@@ -26,14 +26,14 @@ const TRAIN_REGIONS: Record<TrainRegion, { name: string; stations: string[] }> =
     },
     jerusalem: {
       name: "ירושלים והסביבה",
-      stations: ["42286","35684","48085","48475","11037"]
+      stations: ["42286", "35684", "48085", "48475", "11037"]
     },
     south: {
-      name: "דרום הארץ",
+      name: "הדרום ",
       stations: ["37316", "42419", "37312", "37314", "37308"]
     },
     north: {
-      name: "צפון הארץ",
+      name: "הצפון",
       stations: [
         "37380",
         "37378",
@@ -63,12 +63,25 @@ const TRAIN_REGIONS: Record<TrainRegion, { name: string; stations: string[] }> =
  */
 function normalizeInput(input: string | string[]): string {
   if (Array.isArray(input)) {
+    console.log(`⚠️ Received array input with ${input.length} items:`, input);
+    
+    // ✅ מניעת מערכים ארוכים מדי (סימן לבעיה)
+    if (input.length > 10) {
+      console.error(`❌ Array too long (${input.length} items) - taking only first item`);
+    }
+    
     // אם זה מערך, קח רק את האלמנט הראשון
     // זה מטפל במקרה שהמערכת שולחת לחיצות כפולות
     const firstValue = input.find(item => item && item.trim());
-    return firstValue || "";
+    const result = firstValue || "";
+    
+    console.log(`✅ Normalized array to: "${result}"`);
+    return result;
   }
-  return input || "";
+  
+  const result = (input || "").trim();
+  console.log(`✅ Normalized string: "${result}"`);
+  return result;
 }
 
 /**
@@ -88,7 +101,7 @@ function parseValidInteger(
 ): number | null {
   // נרמול הקלט
   const normalized = normalizeInput(input);
-  
+
   if (!normalized || !isValidDigits(normalized)) {
     console.warn(`⚠️ Invalid input (not digits): "${normalized}"`);
     return null;
@@ -190,7 +203,7 @@ export class IVRService {
         step: "SELECT_LINE"
       });
       const message = "t-אנא הקש את מספר הקו המבוקש";
-      return `read=${message}=LINE,yes,3,1,30,Digits,no,no`;
+      return `read=${message}=LINE,yes,3,1,30,numbers,no,no`;
     } else if (type === 2) {
       this.updateSession(phone, {
         transportType: "train",
@@ -199,54 +212,61 @@ export class IVRService {
       });
       return await this.getTrainRegionsList(phone, "origin");
     } else {
-      const message = `t-בחירה לא חוקית.t-לחץ 1 לאוטובוס.t-לחץ 2 לרכבת`;
+      const message = `t-ניתן לבחור נסיעה באוטובס או ברכבת.t-הקש 1 לאוטובוס.t-הקש 2 לרכבת`;
       return `read=${message}=TRANSPORT_TYPE,yes,1,1,30,Digits,no,no`;
     }
   }
 
   // ================== רכבת ==================
 
-  static getTrainRegionsList(phone: string, type: "origin" | "destination"): string {
-  const messageType = type === "origin" ? "תחנת מוצא" : "תחנת יעד";
-  let message = `t-בחר אזור ל${messageType}`;
-  message += ".t-הקש 1 לתל אביב והמרכז";
-  message += ".t-הקש 2 לירושלים והסביבה";
-  message += ".t-הקש 3 לדרום הארץ";
-  message += ".t-הקש 4 לצפון הארץ";
-  
-  // ✅ תיקון: שימוש בשמות משתנים נכונים
-  const varName = type === "origin" ? "TRAIN_REGION_ORIGIN" : "TRAIN_REGION_DEST";
-  return `read=${message}=${varName},yes,1,1,30,Digits,no,no`;
-}
-static async handleTrainOriginRegionSelection(
-  phone: string,
-  regionIndex: string | string[]
-): Promise<string> {
-  const regions: TrainRegion[] = ["center", "jerusalem", "south", "north"];
-  const normalizedInput = normalizeInput(regionIndex);
-  
-  console.log(`🚂 Train origin region selection - input: ${Array.isArray(regionIndex) ? regionIndex.join(',') : regionIndex}`);
-  console.log(`📥 Normalized: "${normalizedInput}"`);
-  
-  const index = parseValidInteger(normalizedInput, 1, 4);
+  static getTrainRegionsList(
+    phone: string,
+    type: "origin" | "destination"
+  ): string {
+    const messageType = type === "origin" ? "תחנת מוצא" : "תחנת יעד";
+    let message = `t-בחר אזור ל${messageType}`;
+    message += ".t-הקש 1 לתל אביב והמרכז";
+    message += ".t-הקש 2 לירושלים והסביבה";
+    message += ".t-הקש 3 לדרום הארץ";
+    message += ".t-הקש 4 לצפון הארץ";
 
-  if (index === null || index < 1 || index > regions.length) {
-    return this.getTrainRegionsList(phone, "origin");
+    // ✅ תיקון: שימוש בשמות משתנים נכונים
+    const varName =
+      type === "origin" ? "TRAIN_REGION_ORIGIN" : "TRAIN_REGION_DEST";
+    return `read=${message}=${varName},yes,1,1,30,Digits,no,no`;
   }
+  static async handleTrainOriginRegionSelection(
+    phone: string,
+    regionIndex: string | string[]
+  ): Promise<string> {
+    const regions: TrainRegion[] = ["center", "jerusalem", "south", "north"];
+    const normalizedInput = normalizeInput(regionIndex);
 
-  const selectedRegion = regions[index - 1];
-  console.log(`✅ Selected origin region: ${selectedRegion}`);
-  
-  // ✅ תיקון: עדכון ל-SELECT_TRAIN_ORIGIN כדי להציג תחנות
-  this.updateSession(phone, {
-    trainRegion: selectedRegion,
-    step: "SELECT_TRAIN_ORIGIN"
-  });
+    console.log(
+      `🚂 Train origin region selection - input: ${
+        Array.isArray(regionIndex) ? regionIndex.join(",") : regionIndex
+      }`
+    );
+    console.log(`📥 Normalized: "${normalizedInput}"`);
 
-  // ✅ הצגת תחנות באזור שנבחר
-  return await this.getTrainStationsByRegion(phone, selectedRegion, "origin");
-}
+    const index = parseValidInteger(normalizedInput, 1, 4);
 
+    if (index === null || index < 1 || index > regions.length) {
+      return this.getTrainRegionsList(phone, "origin");
+    }
+
+    const selectedRegion = regions[index - 1];
+    console.log(`✅ Selected origin region: ${selectedRegion}`);
+
+    // ✅ תיקון: עדכון ל-SELECT_TRAIN_ORIGIN כדי להציג תחנות
+    this.updateSession(phone, {
+      trainRegion: selectedRegion,
+      step: "SELECT_TRAIN_ORIGIN"
+    });
+
+    // ✅ הצגת תחנות באזור שנבחר
+    return await this.getTrainStationsByRegion(phone, selectedRegion, "origin");
+  }
 
   static async getTrainStationsByRegion(
     phone: string,
@@ -257,7 +277,7 @@ static async handleTrainOriginRegionSelection(
       const regionData = TRAIN_REGIONS[region];
       console.log(`🚂 Getting stations for region: ${region}, type: ${type}`);
       console.log(`📍 Region stations IDs:`, regionData.stations);
-      
+
       const allStations = await GTFSService.getTrainStations();
       console.log(`📊 Total train stations from DB: ${allStations.length}`);
 
@@ -265,11 +285,13 @@ static async handleTrainOriginRegionSelection(
         regionData.stations.includes(station.stop_id)
       );
 
-      console.log(`✅ Found ${regionalStations.length} stations in region ${region}`);
-      
+      console.log(
+        `✅ Found ${regionalStations.length} stations in region ${region}`
+      );
+
       if (regionalStations.length === 0) {
         console.log(`❌ No stations found for region ${region}`);
-        return "id_list_message=t-לא נמצאו תחנות באזור זה אנא בחר אזור אחר\nhangup=yes";
+        return "id_list_message=t-לא נמצאו תחנות באזור זה, אנא בחר אזור אחר\nhangup=yes";
       }
 
       this.updateSession(phone, { trainStations: regionalStations });
@@ -279,14 +301,14 @@ static async handleTrainOriginRegionSelection(
 
       regionalStations.forEach((station, index) => {
         const cleanName = cleanTextForIVR(station.stop_name, 20);
-        message += `.t-${cleanName} הקש ${index + 1}`;
+        message += `.t-לתחנת ${cleanName}, הקש ${index + 1}`;
       });
 
       const varName = type === "origin" ? "TRAIN_ORIGIN" : "TRAIN_DESTINATION";
       return `read=${message}=${varName},yes,2,1,30,Digits,no,no`;
     } catch (error) {
       console.error("❌ Error getting regional stations:", error);
-      return "id_list_message=t-אירעה שגיאה\nhangup=yes";
+      return "id_list_message=t-אירעה שגיאה בבחירת תחנה\nhangup=yes";
     }
   }
 
@@ -302,7 +324,11 @@ static async handleTrainOriginRegionSelection(
 
     // נרמול הקלט
     const normalizedInput = normalizeInput(stationIndex);
-    console.log(`🚂 Train origin selection - input: ${Array.isArray(stationIndex) ? stationIndex.join(',') : stationIndex}`);
+    console.log(
+      `🚂 Train origin selection - input: ${
+        Array.isArray(stationIndex) ? stationIndex.join(",") : stationIndex
+      }`
+    );
     console.log(`📥 Normalized: "${normalizedInput}"`);
     console.log(`📊 Available stations: ${session.trainStations.length}`);
 
@@ -311,7 +337,7 @@ static async handleTrainOriginRegionSelection(
       1,
       session.trainStations.length
     );
-    
+
     if (index === null) {
       console.warn(`⚠️ Invalid station index: "${normalizedInput}"`);
       return await this.getTrainStationsByRegion(
@@ -322,7 +348,9 @@ static async handleTrainOriginRegionSelection(
     }
 
     const originStation = session.trainStations[index - 1];
-    console.log(`✅ Selected origin station: ${originStation.stop_name} (${originStation.stop_id})`);
+    console.log(
+      `✅ Selected origin station: ${originStation.stop_name} (${originStation.stop_id})`
+    );
 
     this.updateSession(phone, {
       trainOriginStopId: originStation.stop_id,
@@ -373,7 +401,11 @@ static async handleTrainOriginRegionSelection(
 
     // נרמול הקלט
     const normalizedInput = normalizeInput(stationIndex);
-    console.log(`🚂 Train destination selection - input: ${Array.isArray(stationIndex) ? stationIndex.join(',') : stationIndex}`);
+    console.log(
+      `🚂 Train destination selection - input: ${
+        Array.isArray(stationIndex) ? stationIndex.join(",") : stationIndex
+      }`
+    );
     console.log(`📥 Normalized: "${normalizedInput}"`);
 
     const index = parseValidInteger(
@@ -381,7 +413,7 @@ static async handleTrainOriginRegionSelection(
       1,
       session.trainStations.length
     );
-    
+
     if (index === null) {
       console.warn(`⚠️ Invalid station index: "${normalizedInput}"`);
       return await this.getTrainStationsByRegion(
@@ -392,10 +424,12 @@ static async handleTrainOriginRegionSelection(
     }
 
     const destinationStation = session.trainStations[index - 1];
-    console.log(`✅ Selected destination station: ${destinationStation.stop_name} (${destinationStation.stop_id})`);
+    console.log(
+      `✅ Selected destination station: ${destinationStation.stop_name} (${destinationStation.stop_id})`
+    );
 
     if (destinationStation.stop_id === session.trainOriginStopId) {
-      return "read=t-תחנת היעד זהה לתחנת המוצא אנא בחר תחנה אחרת=TRAIN_DESTINATION,yes,1,1,30,Digits,no,no";
+      return "read=t-תחנת היעד שנבחרה, זהה לתחנת המוצא, אנא בחר תחנה מחדש=TRAIN_DESTINATION,yes,1,1,30,Digits,no,no";
     }
 
     console.log("⏳ Starting train trip creation...");
@@ -420,15 +454,15 @@ static async handleTrainOriginRegionSelection(
 
         return (
           `id_list_message=t-נסיעת רכבת נוצרה בהצלחה` +
-          `.t-מ ${fromStop}` +
-          `.t-ל ${toStop}` +
-          `.t-קוד אישור ${confirmCode}` +
-          `.t-מחיר ${priceText}` +
-          `.t-תודה שבחרת בשירות שלנו\n` +
+          `.t-נסיעה מ ${fromStop},` +
+          `.t-לכיוון ${toStop},` +
+          `.t-קוד האישור ${confirmCode},` +
+          `.t-מחיר ${priceText},` +
+          `.t-תודה והמשך נסיעה בטוחה\n` +
           `hangup=yes`
         );
       } else {
-        return `id_list_message=t-אירעה שגיאה ${result.message}\nhangup=yes`;
+        return `id_list_message=t-אירעה שגיאה ביצירת נסיעה ברכבת ${result.message}\nhangup=yes`;
       }
     } catch (error) {
       console.error("❌ Error creating train trip:", error);
@@ -440,47 +474,94 @@ static async handleTrainOriginRegionSelection(
   // ================== אוטובוס ==================
 
   static async handleLineSelection(
-    phone: string,
-    lineNumber: string | string[]
-  ): Promise<string> {
-    const normalized = normalizeInput(lineNumber);
+  phone: string,
+  lineNumber: string | string[]
+): Promise<string> {
+  const session = this.getOrCreateSession(phone);
+  
+  // ✅ שלב 1: נרמול הקלט (לוקח רק את הערך הראשון אם זה מערך)
+  const normalized = normalizeInput(lineNumber);
+  
+  console.log(`🚌 Line selection - Raw input:`, lineNumber);
+  console.log(`🚌 Line selection - Normalized: "${normalized}"`);
+  
+  // ✅ שלב 2: טיפול בלחיצות מיוחדות (*, #) - איפוס ובקשה מחדש
+  if (normalized === '*' || normalized === '#' ||normalized === '') {
+    console.warn(`⚠️ Special character or empty input detected: "${normalized}"`);
+    // אופציה 1: איפוס חזרה לתחילה
+    this.clearSession(phone);
+    return await this.handleStart(phone);
     
-    if (!isValidDigits(normalized)) {
-      return "read=t-מספר קו לא תקין אנא הקש מספר קו תקין=LINE,yes,3,1,30,Digits,no,no";
-    }
-
-    const cleanedLine = normalized.replace(/^0+/, "") || "0";
-
-    try {
-      const agencies = await GTFSService.getLineBusAgencies(cleanedLine);
-
-      if (agencies.length === 0) {
-        return "read=t-מצטערים קו זה לא נמצא במערכת אנא הקש את מספר הקו שברצונך לנסוע בו=LINE,yes,3,1,30,Digits,no,no";
-      }
-
-      this.updateSession(phone, {
-        lineNumber: cleanedLine,
-        agencies,
-        step: "SELECT_AGENCY"
-      });
-
-      if (agencies.length === 1) {
-        return await this.handleAgencySelection(phone, "1");
-      }
-      
-      let message = `t-קו ${cleanedLine}`;
-
-      agencies.forEach((agency, index) => {
-        const cleanName = cleanTextForIVR(agency.agency_name, 15);
-        message += `.t-ל ${cleanName} הקש ${index + 1}`;
-      });
-      
-      return `read=${message}=AGENCY,yes,2,1,60,Digits,no,no`;
-    } catch (error) {
-      console.error("Error in handleLineSelection:", error);
-      return "id_list_message=t-אירעה שגיאה במערכת\nhangup=yes";
-    }
+    // אופציה 2: בקשה להקיש שוב מספר קו
+    //return "read=t-אנא הקש את מספר הקו המבוקש=LINE,yes,3,1,30,numbers,no,no";
   }
+  
+  // ✅ שלב 3: בדיקה שהקלט מכיל רק ספרות
+  if (!isValidDigits(normalized)) {
+    console.warn(`⚠️ Invalid input (not digits): "${normalized}"`);
+    return "read=t-מספר קו לא תקין, אנא הקש ספרות בלבד=LINE,yes,3,1,30,numbers,no,no";
+  }
+  
+  // ✅ שלב 4: בדיקה שמספר הקו בטווח תקין (1-999)
+  if (!/^[1-9]\d{0,2}$/.test(normalized)) {
+    console.warn(`⚠️ Line number out of range: "${normalized}"`);
+    return "read=t-מספר קו לא תקין, אנא הקש מספר בין 1 ל 999=LINE,yes,3,1,30,numbers,no,no";
+  }
+  
+  // ✅ שלב 5: ניקוי אפסים מובילים (למשל "007" -> "7")
+  const cleanedLine = normalized.replace(/^0+/, "") || "0";
+  console.log(`✅ Cleaned line number: ${cleanedLine}`);
+  
+  // ✅ שלב 6: מניעת ניסיונות חוזרים - בדיקת מגבלת ניסיונות
+  if (!session.lineAttempts) {
+    session.lineAttempts = 0;
+  }
+  
+  try {
+    const agencies = await GTFSService.getLineBusAgencies(cleanedLine);
+    
+    if (agencies.length === 0) {
+      session.lineAttempts++;
+      
+      // אחרי 3 ניסיונות כושלים - נתק
+      if (session.lineAttempts >= 3) {
+        console.warn(`⚠️ Max attempts reached (${session.lineAttempts})`);
+        this.clearSession(phone);
+        return "id_list_message=t-מצטערים, לא הצלחנו לאתר את הקו המבוקש, אנא נסה שוב מאוחר יותר\nhangup=yes";
+      }
+      
+      return "read=t-מצטערים, קו זה לא נמצא במערכת, אנא הקש את מספר הקו שברצונך לנסוע בו=LINE,yes,3,1,30,numbers,no,no";
+    }
+    
+    // ✅ איפוס מונה ניסיונות במקרה של הצלחה
+    session.lineAttempts = 0;
+    
+    this.updateSession(phone, {
+      lineNumber: cleanedLine,
+      agencies,
+      step: "SELECT_AGENCY"
+    });
+    
+    // אם יש רק חברה אחת - קפוץ ישירות לבחירת כיוון
+    if (agencies.length === 1) {
+      return await this.handleAgencySelection(phone, "1");
+    }
+    
+    // הצג רשימת חברות
+    let message = ``;
+    agencies.forEach((agency, index) => {
+      const cleanName = cleanTextForIVR(agency.agency_name, 15);
+      message += `.t-${cleanName}, הקש ,${index + 1}`;
+    });
+    
+    return `read=${message}=AGENCY,yes,2,1,60,numbers,no,no`;
+    
+  } catch (error) {
+    console.error("❌ Error in handleLineSelection:", error);
+    this.clearSession(phone);
+    return "id_list_message=t-אירעה שגיאה במערכת\nhangup=yes";
+  }
+}
 
   static async handleAgencySelection(
     phone: string,
@@ -494,11 +575,19 @@ static async handleTrainOriginRegionSelection(
 
     // נרמול הקלט - לוקח רק את האלמנט הראשון אם זה מערך
     const normalizedInput = normalizeInput(agencyIndex);
-    
-    console.log(`✅ Handling AGENCY selection: ${Array.isArray(agencyIndex) ? agencyIndex.join(',') : agencyIndex}`);
+
+    console.log(
+      `✅ Handling AGENCY selection: ${
+        Array.isArray(agencyIndex) ? agencyIndex.join(",") : agencyIndex
+      }`
+    );
     console.log(`📥 Normalized input: "${normalizedInput}"`);
 
-    const index = parseValidInteger(normalizedInput, 1, session.agencies.length);
+    const index = parseValidInteger(
+      normalizedInput,
+      1,
+      session.agencies.length
+    );
 
     if (index === null) {
       console.warn(`⚠️ Invalid agency index: "${normalizedInput}"`);
@@ -526,17 +615,17 @@ static async handleTrainOriginRegionSelection(
       });
 
       if (directions.length === 0) {
-        return "id_list_message=t-לא נמצאו כיוונים זמינים עבור חברה זו\nhangup=yes";
+        return "id_list_message=t-לא נמצאו כיוונים זמינים, עבור חברה זו\nhangup=yes";
       }
 
       if (directions.length === 1) {
         return await this.handleDirectionSelection(phone, "1");
       }
 
-      let message = `t-קו ${session.lineNumber} כיוון`;
+      let message = `t-`;
       directions.slice(0, 9).forEach((dir, index) => {
         const cleanName = cleanTextForIVR(dir.direction_name, 20);
-        message += `.t-${cleanName} ${index + 1}`;
+        message += `.t-לכיוון ,${cleanName},הקש, ${index + 1}`;
       });
 
       return `read=${message}=DIRECTION,yes,1,1,60,Digits,no,no`;
@@ -590,8 +679,7 @@ static async handleTrainOriginRegionSelection(
         step: "SELECT_STOP_METHOD"
       });
 
-      const message =
-        `t-נבחר כיוון` + `.t-הקש 1 לנסיעה מלאה` + `.t-הקש 2 להקיש מספר תחנות`;
+      const message =`t-הקש 1, לנסיעה לפי תחנת מוצא, ויעד` + `.t-הקש 2,לבחירת, תחנת עלייה, וירידה`;
 
       return `read=${message}=STOP_METHOD,yes,1,1,60,Digits,no,no`;
     } catch (error) {
@@ -617,7 +705,7 @@ static async handleTrainOriginRegionSelection(
     } else if (methodIndex === 2) {
       this.updateSession(phone, { step: "ENTER_BOARDING_CODE" });
       const message =
-        `t-אנא הקש את מספר תחנת העלייה` + `.t-מספר התחנה מופיע בשלט התחנה`;
+        `t-אנא הקש מספר תחנת העלייה` + `.t-מספר התחנה מופיע בשלט התחנה`;
       return `read=${message}=BOARDING_CODE,yes,5,1,30,Digits,no,no`;
     } else {
       const message =
@@ -664,11 +752,11 @@ static async handleTrainOriginRegionSelection(
         return (
           `id_list_message=t-נסיעה נוצרה בהצלחה` +
           `.t-קו ${session.lineNumber}` +
-          `.t-מ ${fromStop}` +
+          `.t-שנוסע מ ${fromStop}` +
           `.t-ל ${toStop}` +
           `.t-קוד ${confirmCode}` +
           `.t-מחיר ${priceText}` +
-          `.t-תודה\n` +
+          `.t-תודה, והמשך נסיעה טובה\n` +
           `hangup=yes`
         );
       } else {
@@ -790,8 +878,8 @@ static async handleTrainOriginRegionSelection(
         return (
           `id_list_message=t-נסיעה נוצרה בהצלחה` +
           `.t-קו ${session.lineNumber}` +
-          `.t-מ ${fromStop}` +
-          `.t-ל ${toStop}` +
+          `.t-שנוסע, מ, ${fromStop}` +
+          `.t-לכיוון ${toStop}` +
           `.t-קוד אישור ${confirmCode}` +
           `.t-מחיר ${priceText}` +
           `.t-תודה שבחרת בשירות שלנו\n` +
@@ -811,4 +899,4 @@ static async handleTrainOriginRegionSelection(
     this.clearSession(phone);
     console.log(`📞 שיחה הסתיימה עבור ${phone}`);
   }
-} 
+}

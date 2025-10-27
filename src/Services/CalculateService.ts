@@ -222,68 +222,56 @@ static async getFareByDistance(
   boardingStopId: string,
   alightingStopId: string
 ): Promise<{ price: number; fareId: string } | null> {
-  
-  // Note: supabase is used here for static context, adjust if you need to use a different db client
-  const query = `
-    SELECT 
-      stop_lat::numeric as lat, stop_lon::numeric as lon, stop_id
-    FROM stops
-    WHERE stop_id = ANY($1)
-  `;
-  
   try {
-    // Fetch both stops in one query
     const { data, error } = await supabase
       .from('stops')
       .select('stop_id, stop_lat, stop_lon')
       .in('stop_id', [boardingStopId, alightingStopId]);
-    
+
     if (error || !data || data.length < 2) return null;
 
     const stop1 = data.find((s: any) => s.stop_id === boardingStopId);
     const stop2 = data.find((s: any) => s.stop_id === alightingStopId);
-
     if (!stop1 || !stop2) return null;
 
-    // חישוב מרחק (קירוב פשוט)
     const distance = CalculationService.calculateDistance(
-      parseFloat(stop1.stop_lat), parseFloat(stop1.stop_lon),
-      parseFloat(stop2.stop_lat), parseFloat(stop2.stop_lon)
+      parseFloat(stop1.stop_lat),
+      parseFloat(stop1.stop_lon),
+      parseFloat(stop2.stop_lat),
+      parseFloat(stop2.stop_lon)
     );
-    
-    // לוגיקה לתעריف לפי מרחק (בק"מ)
-    let fareId: string;
-    if (distance < 10) {
-      fareId = "201"; // 8 שקל - מרחק קצר
-    } else if (distance < 25) {
-      fareId = "202"; // 14.50 שקל - מרחק בינוני  
-    } else if (distance < 50) {
-      fareId = "204"; // 19 שקל - מרחק רחוק
+
+    // 💰 לוגיקת מחיר לפי טבלת "חופשי יומי באוטובוס"
+    let price = 0;
+    let fareId = "";
+
+    if (distance <= 15) {
+      price = 8;
+      fareId = "201";
+    } else if (distance <= 40) {
+      price = 14.5;
+      fareId = "202";
+    } else if (distance <= 75) {
+      price = 19;
+      fareId = "204";
+    } else if (distance <= 120) {
+      price = 19; // אותו מחיר כמו שורה קודמת
+      fareId = "204";
+    } else if (distance <= 225) {
+      price = 32.5;
+      fareId = "205";
     } else {
-      fareId = "205"; // 30.50 שקל - מרחק מאוד רחוק
-    }
-    
-    const { data: fareData, error: fareError } = await supabase
-      .from('fare_attributes')
-      .select('fare_id, price')
-      .eq('fare_id', fareId)
-      .single();
-    
-    if (fareError || !fareData) {
-      return null;
+      price = 74;
+      fareId = "226";
     }
 
-    return {
-      price: parseFloat(fareData.price),
-      fareId: fareData.fare_id
-    };
-    
+    return { price, fareId };
   } catch (error) {
-    console.error("Error calculating fare by distance:", error);
+    console.error("Error calculating bus fare:", error);
+    return null;
   }
-  
-  return null;
 }
+
 
   // חישוב מרחק גיאוגרפי (haversine formula)
   static calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
