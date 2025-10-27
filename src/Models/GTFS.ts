@@ -102,3 +102,8 @@ interface BusLineActivity {
   question_type: 'ask_direction_only' | 'ask_city_then_direction';
 }
 
+export interface TrainStation {
+  stop_id: string;
+  stop_name: string;
+  stop_code: string;
+}

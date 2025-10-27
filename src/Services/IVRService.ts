@@ -203,7 +203,7 @@ export class IVRService {
         step: "SELECT_LINE"
       });
       const message = "t-אנא הקש את מספר הקו המבוקש";
-      return `read=${message}=LINE,yes,3,1,30,numbers,no,no`;
+      return `read=${message}=LINE,yes,3,1,30,digits,no,no`;
     } else if (type === 2) {
       this.updateSession(phone, {
         transportType: "train",
@@ -473,7 +473,7 @@ export class IVRService {
 
   // ================== אוטובוס ==================
 
-  static async handleLineSelection(
+static async handleLineSelection(
   phone: string,
   lineNumber: string | string[]
 ): Promise<string> {
@@ -485,27 +485,23 @@ export class IVRService {
   console.log(`🚌 Line selection - Raw input:`, lineNumber);
   console.log(`🚌 Line selection - Normalized: "${normalized}"`);
   
-  // ✅ שלב 2: טיפול בלחיצות מיוחדות (*, #) - איפוס ובקשה מחדש
-  if (normalized === '*' || normalized === '#' ||normalized === '') {
-    console.warn(`⚠️ Special character or empty input detected: "${normalized}"`);
-    // אופציה 1: איפוס חזרה לתחילה
+  // ✅ שלב 2: טיפול בלחיצות מיוחדות (*, #) - ניתוק
+  if (normalized === '*' || normalized === '#' || normalized === '') {
+    console.warn(`⚠️ Special character or empty input detected: "${normalized}" - disconnecting`);
     this.clearSession(phone);
-    return await this.handleStart(phone);
-    
-    // אופציה 2: בקשה להקיש שוב מספר קו
-    //return "read=t-אנא הקש את מספר הקו המבוקש=LINE,yes,3,1,30,numbers,no,no";
+    return "id_list_message=t-השיחה מסתיימת תודה שהתקשרת\nhangup=yes";
   }
   
   // ✅ שלב 3: בדיקה שהקלט מכיל רק ספרות
   if (!isValidDigits(normalized)) {
     console.warn(`⚠️ Invalid input (not digits): "${normalized}"`);
-    return "read=t-מספר קו לא תקין, אנא הקש ספרות בלבד=LINE,yes,3,1,30,numbers,no,no";
+    return "read=t-מספר קו לא תקין אנא הקש ספרות בלבד=LINE,yes,3,1,30,Digits,no,no";
   }
   
   // ✅ שלב 4: בדיקה שמספר הקו בטווח תקין (1-999)
   if (!/^[1-9]\d{0,2}$/.test(normalized)) {
     console.warn(`⚠️ Line number out of range: "${normalized}"`);
-    return "read=t-מספר קו לא תקין, אנא הקש מספר בין 1 ל 999=LINE,yes,3,1,30,numbers,no,no";
+    return "read=t-מספר קו לא תקין אנא הקש מספר בין 1 ל 999=LINE,yes,3,1,30,Digits,no,no";
   }
   
   // ✅ שלב 5: ניקוי אפסים מובילים (למשל "007" -> "7")
@@ -527,10 +523,10 @@ export class IVRService {
       if (session.lineAttempts >= 3) {
         console.warn(`⚠️ Max attempts reached (${session.lineAttempts})`);
         this.clearSession(phone);
-        return "id_list_message=t-מצטערים, לא הצלחנו לאתר את הקו המבוקש, אנא נסה שוב מאוחר יותר\nhangup=yes";
+        return "id_list_message=t-מצטערים לא הצלחנו לאתר את הקו המבוקש אנא נסה שוב מאוחר יותר\nhangup=yes";
       }
       
-      return "read=t-מצטערים, קו זה לא נמצא במערכת, אנא הקש את מספר הקו שברצונך לנסוע בו=LINE,yes,3,1,30,numbers,no,no";
+      return "read=t-מצטערים קו זה לא נמצא במערכת אנא הקש את מספר הקו שברצונך לנסוע בו=LINE,yes,3,1,30,Digits,no,no";
     }
     
     // ✅ איפוס מונה ניסיונות במקרה של הצלחה
@@ -548,13 +544,13 @@ export class IVRService {
     }
     
     // הצג רשימת חברות
-    let message = ``;
+    let message = `t-קו ${cleanedLine}`;
     agencies.forEach((agency, index) => {
       const cleanName = cleanTextForIVR(agency.agency_name, 15);
-      message += `.t-${cleanName}, הקש ,${index + 1}`;
+      message += `.t-${cleanName} הקש ${index + 1}`; // ✅ הסרת פסיק מיותר
     });
     
-    return `read=${message}=AGENCY,yes,2,1,60,numbers,no,no`;
+    return `read=${message}=AGENCY,yes,2,1,60,Digits,no,no`;
     
   } catch (error) {
     console.error("❌ Error in handleLineSelection:", error);

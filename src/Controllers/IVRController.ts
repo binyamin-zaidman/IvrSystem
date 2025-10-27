@@ -22,29 +22,24 @@ export class IVRController {
       }
 
       const session = IVRService.getOrCreateSession(ApiPhone);
+// ✅ הגנה מפני מערכים חשודים (סימן ללולאה)
+const suspiciousArrays = Object.entries(req.body).filter(
+  ([key, value]) => Array.isArray(value) && value.length > 5 // ✅ הורדה ל-5
+);
 
-      // ✅ הגנה מפני מערכים חשודים (סימן ללולאה)
-      const suspiciousArrays = Object.entries(req.body).filter(
-        ([key, value]) => Array.isArray(value) && value.length > 10
-      );
-
-      if (suspiciousArrays.length > 0) {
-        console.error(
-          `❌ Detected suspicious arrays in request:`,
-          suspiciousArrays.map(
-            ([key, value]) => `${key}: ${(value as any[]).length} items`
-          )
-        );
-
-        // איפוס הסשן ובקשה להתחיל מחדש
-        IVRService.clearSession(ApiPhone);
-        return res
-          .status(200)
-          .set("Content-Type", "text/plain; charset=utf-8")
-          .send(
-            "id_list_message=t-אירעה שגיאה במערכת נא להתקשר שוב\nhangup=yes"
-          );
-      }
+if (suspiciousArrays.length > 0) {
+  console.error(`❌ Detected suspicious arrays - Loop detected!`);
+  suspiciousArrays.forEach(([key, value]) => {
+    console.error(`  ${key}: ${Array.isArray(value) ? value.length : 0} items`);
+  });
+  
+  // איפוס הסשן וניתוק
+  IVRService.clearSession(ApiPhone);
+  return res
+    .status(200)
+    .set("Content-Type", "text/plain; charset=utf-8")
+    .send("id_list_message=t-אירעה שגיאה במערכת נא להתקשר שוב\nhangup=yes");
+}
       console.log(`📊 Session: ${ApiPhone}, Step: ${session.step}`);
       console.log(`📥 Received body:`, req.body);
       console.log("------------------------------------------");
