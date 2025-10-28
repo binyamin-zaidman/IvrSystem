@@ -457,7 +457,7 @@ export class IVRService {
           `.t-נסיעה מ ${fromStop},` +
           `.t-לכיוון ${toStop},` +
           `.t-קוד האישור ${confirmCode},` +
-          `.t-מחיר ${priceText},` +
+          `.t-מחיר-pr-${priceText},` +
           `.t-תודה והמשך נסיעה בטוחה\n` +
           `hangup=yes`
         );
@@ -751,7 +751,7 @@ static async handleLineSelection(
           `.t-שנוסע מ ${fromStop}` +
           `.t-ל ${toStop}` +
           `.t-קוד ${confirmCode}` +
-          `.t-מחיר ${priceText}` +
+          `.t-מחיר-pr-${priceText}` +
           `.t-תודה, והמשך נסיעה טובה\n` +
           `hangup=yes`
         );
@@ -877,7 +877,7 @@ static async handleLineSelection(
           `.t-שנוסע, מ, ${fromStop}` +
           `.t-לכיוון ${toStop}` +
           `.t-קוד אישור ${confirmCode}` +
-          `.t-מחיר ${priceText}` +
+          `.t-מחיר-pr-${priceText}` +
           `.t-תודה שבחרת בשירות שלנו\n` +
           `hangup=yes`
         );
