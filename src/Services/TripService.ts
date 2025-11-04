@@ -61,11 +61,14 @@ export class TripService {
           `No trip found for route ${tripRequest.route_id}, direction ${tripRequest.direction_id}`
         );
       }
+      const uuidRegex =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isUuid = uuidRegex.test(tripRequest.user_id);
       let userData;
       const actualTripId = existingTrip[0].trip_id;
       console.log("Found trip_id:", actualTripId);
 
-      if (tripRequest.user_id.length <= 10) {
+      if (!isUuid) {
         userData = await UserService.getUserByPhone(tripRequest.user_id);
 
         if (!userData) {
