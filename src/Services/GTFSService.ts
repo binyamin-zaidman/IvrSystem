@@ -687,7 +687,7 @@ export class GTFSService {
         .single();
 
       const lineNumber = routeData?.route_short_name || "???";
-
+      console.log("~~~~~~"+params.userId)
       // השתמש ב-TripService הקיים ליצירת הנסיעה
       const tripRequest = {
         user_id: params.userId,
@@ -983,7 +983,21 @@ export class GTFSService {
         parseFloat(destination.stop_lat),
         parseFloat(destination.stop_lon)
       );
-      const price = Math.round((10 + distance * 0.15) * 10) / 10;
+      let price = 0;
+      if (distance <= 15) {
+        price = 11.5;
+      } else if (distance <= 40) {
+        price = 21;
+      } else if (distance <= 75) {
+        price = 27;
+      } else if (distance <= 120) {
+        price = 30.5;
+      } else if (distance <= 225) {
+        price = 52.5;
+      } else {
+        // מרחק גדול יותר – אפשר לקבוע מחיר ברירת מחדל
+        price = 60; // לדוגמה
+      }
 
       const confirmationCode = `TRAIN_${Math.floor(
         10000 + Math.random() * 90000

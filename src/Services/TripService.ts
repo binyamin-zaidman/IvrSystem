@@ -61,14 +61,23 @@ export class TripService {
           `No trip found for route ${tripRequest.route_id}, direction ${tripRequest.direction_id}`
         );
       }
-
+      let userData;
       const actualTripId = existingTrip[0].trip_id;
       console.log("Found trip_id:", actualTripId);
-      const userData = await UserService.getUserByPhone(tripRequest.user_id);
+
+      if (tripRequest.user_id.length <= 10) {
+        userData = await UserService.getUserByPhone(tripRequest.user_id);
+
+        if (!userData) {
+          throw new Error(`User not found for phone: ${tripRequest.user_id}`);
+        }
+      } else {
+        userData = { id: tripRequest.user_id, name: "" };
+      }
       if (!userData) {
         throw new Error(`User not found for phone: ${tripRequest.user_id}`);
       }
-console.log("User data found:", userData.id);
+      console.log("User data found:", userData.id);
       // יצירת הנסיעה עם המחיר המחושב
       const rideData = {
         user_id: userData.id,

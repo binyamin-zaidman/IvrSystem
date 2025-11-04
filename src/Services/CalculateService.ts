@@ -241,7 +241,7 @@ static async getFareByDistance(
       parseFloat(stop2.stop_lon)
     );
 
-    // 💰 לוגיקת מחיר לפי טבלת "חופשי יומי באוטובוס"
+    // 💰 לוגיקת מחיר לפי טבלת באוטובוס"
     let price = 0;
     let fareId = "";
 

@@ -64,21 +64,23 @@ const TRAIN_REGIONS: Record<TrainRegion, { name: string; stations: string[] }> =
 function normalizeInput(input: string | string[]): string {
   if (Array.isArray(input)) {
     console.log(`⚠️ Received array input with ${input.length} items:`, input);
-    
+
     // ✅ מניעת מערכים ארוכים מדי (סימן לבעיה)
     if (input.length > 10) {
-      console.error(`❌ Array too long (${input.length} items) - taking only first item`);
+      console.error(
+        `❌ Array too long (${input.length} items) - taking only first item`
+      );
     }
-    
+
     // אם זה מערך, קח רק את האלמנט הראשון
     // זה מטפל במקרה שהמערכת שולחת לחיצות כפולות
-    const firstValue = input.find(item => item && item.trim());
+    const firstValue = input.find((item) => item && item.trim());
     const result = firstValue || "";
-    
+
     console.log(`✅ Normalized array to: "${result}"`);
     return result;
   }
-  
+
   const result = (input || "").trim();
   console.log(`✅ Normalized string: "${result}"`);
   return result;
@@ -473,91 +475,92 @@ export class IVRService {
 
   // ================== אוטובוס ==================
 
-static async handleLineSelection(
-  phone: string,
-  lineNumber: string | string[]
-): Promise<string> {
-  const session = this.getOrCreateSession(phone);
-  
-  // ✅ שלב 1: נרמול הקלט (לוקח רק את הערך הראשון אם זה מערך)
-  const normalized = normalizeInput(lineNumber);
-  
-  console.log(`🚌 Line selection - Raw input:`, lineNumber);
-  console.log(`🚌 Line selection - Normalized: "${normalized}"`);
-  
-  // ✅ שלב 2: טיפול בלחיצות מיוחדות (*, #) - ניתוק
-  if (normalized === '*' || normalized === '#' || normalized === '') {
-    console.warn(`⚠️ Special character or empty input detected: "${normalized}" - disconnecting`);
-    this.clearSession(phone);
-    return "id_list_message=t-השיחה מסתיימת תודה שהתקשרת\nhangup=yes";
-  }
-  
-  // ✅ שלב 3: בדיקה שהקלט מכיל רק ספרות
-  if (!isValidDigits(normalized)) {
-    console.warn(`⚠️ Invalid input (not digits): "${normalized}"`);
-    return "read=t-מספר קו לא תקין אנא הקש ספרות בלבד=LINE,yes,3,1,30,Digits,no,no";
-  }
-  
-  // ✅ שלב 4: בדיקה שמספר הקו בטווח תקין (1-999)
-  if (!/^[1-9]\d{0,2}$/.test(normalized)) {
-    console.warn(`⚠️ Line number out of range: "${normalized}"`);
-    return "read=t-מספר קו לא תקין אנא הקש מספר בין 1 ל 999=LINE,yes,3,1,30,Digits,no,no";
-  }
-  
-  // ✅ שלב 5: ניקוי אפסים מובילים (למשל "007" -> "7")
-  const cleanedLine = normalized.replace(/^0+/, "") || "0";
-  console.log(`✅ Cleaned line number: ${cleanedLine}`);
-  
-  // ✅ שלב 6: מניעת ניסיונות חוזרים - בדיקת מגבלת ניסיונות
-  if (!session.lineAttempts) {
-    session.lineAttempts = 0;
-  }
-  
-  try {
-    const agencies = await GTFSService.getLineBusAgencies(cleanedLine);
-    
-    if (agencies.length === 0) {
-      session.lineAttempts++;
-      
-      // אחרי 3 ניסיונות כושלים - נתק
-      if (session.lineAttempts >= 3) {
-        console.warn(`⚠️ Max attempts reached (${session.lineAttempts})`);
-        this.clearSession(phone);
-        return "id_list_message=t-מצטערים לא הצלחנו לאתר את הקו המבוקש אנא נסה שוב מאוחר יותר\nhangup=yes";
+  static async handleLineSelection(
+    phone: string,
+    lineNumber: string | string[]
+  ): Promise<string> {
+    const session = this.getOrCreateSession(phone);
+
+    // ✅ שלב 1: נרמול הקלט (לוקח רק את הערך הראשון אם זה מערך)
+    const normalized = normalizeInput(lineNumber);
+
+    console.log(`🚌 Line selection - Raw input:`, lineNumber);
+    console.log(`🚌 Line selection - Normalized: "${normalized}"`);
+
+    // ✅ שלב 2: טיפול בלחיצות מיוחדות (*, #) - ניתוק
+    if (normalized === "*" || normalized === "#" || normalized === "") {
+      console.warn(
+        `⚠️ Special character or empty input detected: "${normalized}" - disconnecting`
+      );
+      this.clearSession(phone);
+      return "id_list_message=t-השיחה מסתיימת תודה שהתקשרת\nhangup=yes";
+    }
+
+    // ✅ שלב 3: בדיקה שהקלט מכיל רק ספרות
+    if (!isValidDigits(normalized)) {
+      console.warn(`⚠️ Invalid input (not digits): "${normalized}"`);
+      return "read=t-מספר קו לא תקין אנא הקש ספרות בלבד=LINE,yes,3,1,30,Digits,no,no";
+    }
+
+    // ✅ שלב 4: בדיקה שמספר הקו בטווח תקין (1-999)
+    if (!/^[1-9]\d{0,2}$/.test(normalized)) {
+      console.warn(`⚠️ Line number out of range: "${normalized}"`);
+      return "read=t-מספר קו לא תקין אנא הקש מספר בין 1 ל 999=LINE,yes,3,1,30,Digits,no,no";
+    }
+
+    // ✅ שלב 5: ניקוי אפסים מובילים (למשל "007" -> "7")
+    const cleanedLine = normalized.replace(/^0+/, "") || "0";
+    console.log(`✅ Cleaned line number: ${cleanedLine}`);
+
+    // ✅ שלב 6: מניעת ניסיונות חוזרים - בדיקת מגבלת ניסיונות
+    if (!session.lineAttempts) {
+      session.lineAttempts = 0;
+    }
+
+    try {
+      const agencies = await GTFSService.getLineBusAgencies(cleanedLine);
+
+      if (agencies.length === 0) {
+        session.lineAttempts++;
+
+        // אחרי 3 ניסיונות כושלים - נתק
+        if (session.lineAttempts >= 3) {
+          console.warn(`⚠️ Max attempts reached (${session.lineAttempts})`);
+          this.clearSession(phone);
+          return "id_list_message=t-מצטערים לא הצלחנו לאתר את הקו המבוקש אנא נסה שוב מאוחר יותר\nhangup=yes";
+        }
+
+        return "read=t-מצטערים קו זה לא נמצא במערכת אנא הקש את מספר הקו שברצונך לנסוע בו=LINE,yes,3,1,30,Digits,no,no";
       }
-      
-      return "read=t-מצטערים קו זה לא נמצא במערכת אנא הקש את מספר הקו שברצונך לנסוע בו=LINE,yes,3,1,30,Digits,no,no";
+
+      // ✅ איפוס מונה ניסיונות במקרה של הצלחה
+      session.lineAttempts = 0;
+
+      this.updateSession(phone, {
+        lineNumber: cleanedLine,
+        agencies,
+        step: "SELECT_AGENCY"
+      });
+
+      // אם יש רק חברה אחת - קפוץ ישירות לבחירת כיוון
+      if (agencies.length === 1) {
+        return await this.handleAgencySelection(phone, "1");
+      }
+
+      // הצג רשימת חברות
+      let message = `t-קו ${cleanedLine}`;
+      agencies.forEach((agency, index) => {
+        const cleanName = cleanTextForIVR(agency.agency_name, 15);
+        message += `.t-${cleanName} הקש ${index + 1}`; // ✅ הסרת פסיק מיותר
+      });
+
+      return `read=${message}=AGENCY,yes,2,1,60,Digits,no,no`;
+    } catch (error) {
+      console.error("❌ Error in handleLineSelection:", error);
+      this.clearSession(phone);
+      return "id_list_message=t-אירעה שגיאה במערכת\nhangup=yes";
     }
-    
-    // ✅ איפוס מונה ניסיונות במקרה של הצלחה
-    session.lineAttempts = 0;
-    
-    this.updateSession(phone, {
-      lineNumber: cleanedLine,
-      agencies,
-      step: "SELECT_AGENCY"
-    });
-    
-    // אם יש רק חברה אחת - קפוץ ישירות לבחירת כיוון
-    if (agencies.length === 1) {
-      return await this.handleAgencySelection(phone, "1");
-    }
-    
-    // הצג רשימת חברות
-    let message = `t-קו ${cleanedLine}`;
-    agencies.forEach((agency, index) => {
-      const cleanName = cleanTextForIVR(agency.agency_name, 15);
-      message += `.t-${cleanName} הקש ${index + 1}`; // ✅ הסרת פסיק מיותר
-    });
-    
-    return `read=${message}=AGENCY,yes,2,1,60,Digits,no,no`;
-    
-  } catch (error) {
-    console.error("❌ Error in handleLineSelection:", error);
-    this.clearSession(phone);
-    return "id_list_message=t-אירעה שגיאה במערכת\nhangup=yes";
   }
-}
 
   static async handleAgencySelection(
     phone: string,
@@ -618,7 +621,7 @@ static async handleLineSelection(
         return await this.handleDirectionSelection(phone, "1");
       }
 
-      let message = `t-`;
+      let message = `t-בחר כיוון לנסיעה בקו ${session.lineNumber}`;
       directions.slice(0, 9).forEach((dir, index) => {
         const cleanName = cleanTextForIVR(dir.direction_name, 20);
         message += `.t-לכיוון ,${cleanName},הקש, ${index + 1}`;
@@ -675,7 +678,9 @@ static async handleLineSelection(
         step: "SELECT_STOP_METHOD"
       });
 
-      const message =`t-הקש 1, לנסיעה לפי תחנת מוצא, ויעד` + `.t-הקש 2,לבחירת, תחנת עלייה, וירידה`;
+      const message =
+        `t-הקש 1, לנסיעה לפי תחנת מוצא, ויעד` +
+        `.t-הקש 2,לבחירת, תחנת עלייה, וירידה`;
 
       return `read=${message}=STOP_METHOD,yes,1,1,60,Digits,no,no`;
     } catch (error) {
@@ -727,9 +732,9 @@ static async handleLineSelection(
 
     try {
       console.log("⏳ Creating full trip...");
-
+      const userData = await UserService.getUserByPhone(phone);
       const result = await GTFSService.createTripWithStopIds({
-        userId: phone,
+        userId: userData?.id,
         routeId: session.routeId,
         directionId: session.directionId,
         agencyId: session.agencyId,
