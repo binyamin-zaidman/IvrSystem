@@ -62,8 +62,8 @@ export class TripService {
         );
       }
       const uuidRegex =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const isUuid = uuidRegex.test(tripRequest.user_id);
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const isUuid = uuidRegex.test(tripRequest.user_id);
       let userData;
       const actualTripId = existingTrip[0].trip_id;
       console.log("Found trip_id:", actualTripId);
