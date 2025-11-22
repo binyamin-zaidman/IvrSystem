@@ -83,7 +83,7 @@ export interface  Trip {
   service_id: string;
 }
 
-interface DirectionInfo {
+export interface DirectionInfo {
   direction_id: number;
   direction_name: string;
   destination_city: string;

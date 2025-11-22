@@ -6,6 +6,10 @@ export interface Agency {
   agency_id: string;
   agency_name: string;
 }
+/**
+ * ✅ Transport Types
+ */
+export type TransportType = "bus" | "train";
 
 export interface Direction {
   route_id: string;
@@ -37,7 +41,9 @@ export type IVRStep =
   | "SELECT_TRAIN_REGION"
   | "SELECT_TRAIN_ORIGIN"
   | "SELECT_TRAIN_DEST_REGION"
-  | "SELECT_TRAIN_DESTINATION";
+  | "SELECT_TRAIN_DESTINATION"
+  | "SELECT_TRAIN_ORIGIN_STOP";
+
 
 export interface UserSession {
   phone: string;
@@ -65,3 +71,17 @@ export interface UserSession {
   trainOriginStopId?: string;
   trainOriginStopName?: string;
 }
+export interface IVRResponse {
+  session: UserSession; // או טיפוס ממשי של Session
+  nextStep: string;
+}
+
+
+/**
+ * ✅ Agency Info
+ */
+export interface AgencyInfo {
+  agency_id: string;
+  agency_name: string;
+}
+

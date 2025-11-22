@@ -1,248 +1,131 @@
 import { Request, Response } from "express";
-import { IVRService } from "../Services/IVRService";
+import { IVRService } from "../Services/try";
 
 export class IVRController {
   static async handleAll(req: Request, res: Response) {
-    console.log("📲 Incoming IVR request:", JSON.stringify(req.body, null, 2));
-
     try {
-      const { ApiPhone, hangup } = req.body;
+      const { ApiPhone } = req.body;
 
-      if (hangup === "yes") {
-        IVRService.handleHangup(ApiPhone);
-        return res.status(200).send("ok");
-      }
+      console.log("📞 IVR Request received:", {
+        phone: ApiPhone,
+        body: req.body
+      });
 
       if (!ApiPhone) {
-        console.error("❌ No phone number");
         return res
           .status(200)
           .set("Content-Type", "text/plain; charset=utf-8")
           .send("id_list_message=t-שגיאה במערכת\nhangup=yes");
       }
+      if(req.body.hangup === "yes"){
+        console.log(`📴 Call ended by user: ${ApiPhone}, clearing session`);
+        IVRService.clearSession(ApiPhone);
+        return res
+          .status(200)
+          .set("Content-Type", "text/plain; charset=utf-8")
+          .send("id_list_message=t-השיחה מסתיימת תודה\nhangup=yes");
+      }
 
+      // הגנה מפני מערכים חשודים
+      const suspiciousArrays = Object.entries(req.body).filter(
+        ([, value]) => Array.isArray(value) && value.length > 5
+      );
+      
+      if (suspiciousArrays.length > 0) {
+        console.warn("⚠️ Suspicious arrays detected, clearing session");
+        IVRService.clearSession(ApiPhone);
+        return res
+          .status(200)
+          .set("Content-Type", "text/plain; charset=utf-8")
+          .send("id_list_message=t-יש מערך של נתונים \nhangup=yes");
+      }
+
+      // קבל session קיים
       const session = IVRService.getOrCreateSession(ApiPhone);
-// ✅ הגנה מפני מערכים חשודים (סימן ללולאה)
-const suspiciousArrays = Object.entries(req.body).filter(
-  ([key, value]) => Array.isArray(value) && value.length > 5 // ✅ הורדה ל-5
-);
+      console.log(`📊 Current session step: ${session.step}`);
 
-if (suspiciousArrays.length > 0) {
-  console.error(`❌ Detected suspicious arrays - Loop detected!`);
-  suspiciousArrays.forEach(([key, value]) => {
-    console.error(`  ${key}: ${Array.isArray(value) ? value.length : 0} items`);
-  });
-  
-  // איפוס הסשן וניתוק
-  IVRService.clearSession(ApiPhone);
-  return res
-    .status(200)
-    .set("Content-Type", "text/plain; charset=utf-8")
-    .send("id_list_message=t-אירעה שגיאה במערכת נא להתקשר שוב\nhangup=yes");
-}
-      console.log(`📊 Session: ${ApiPhone}, Step: ${session.step}`);
-      console.log(`📥 Received body:`, req.body);
-      console.log("------------------------------------------");
-
-      let response: string;
-
+      // ✅ נחלץ הקלט המתאים לפי שלב CURRENT
+      let input: string | string[] | undefined;
+    
       switch (session.step) {
         case "START":
-        case "SELECT_LINE":
-          const { LINE } = req.body;
-          if (LINE) {
-            console.log(`✅ Handling LINE selection: ${LINE}`);
-            response = await IVRService.handleLineSelection(ApiPhone, LINE);
-          } else {
-            response = await IVRService.handleStart(ApiPhone);
-          }
+          // אין קלט בהתחלה
+          input = undefined;
           break;
 
         case "SELECT_TRANSPORT_TYPE":
-          const { TRANSPORT_TYPE } = req.body;
-          if (TRANSPORT_TYPE) {
-            console.log(
-              `✅ Handling TRANSPORT_TYPE selection: ${TRANSPORT_TYPE}`
-            );
-            response = await IVRService.handleTransportTypeSelection(
-              ApiPhone,
-              TRANSPORT_TYPE
-            );
-          } else {
-            response = await IVRService.handleStart(ApiPhone);
-          }
+          input = req.body.TRANSPORT_TYPE;
+          console.log("📥 TRANSPORT_TYPE input:", input);
+          break;
+
+        case "SELECT_LINE":
+          input = req.body.LINE;
+          console.log("📥 LINE input:", input);
+          break;
+
+        case "SELECT_AGENCY":
+          input = req.body.AGENCY;
+          console.log("📥 AGENCY input:", input);
+          break;
+
+        case "SELECT_DIRECTION":
+          input = req.body.DIRECTION;
+          console.log("📥 DIRECTION input:", input);
+          break;
+
+        case "SELECT_STOP_METHOD":
+          input = req.body.STOP_METHOD;
+          console.log("📥 STOP_METHOD input:", input);
+          break;
+
+        case "ENTER_BOARDING_CODE":
+          input = req.body.BOARDING_CODE;
+          console.log("📥 BOARDING_CODE input:", input);
+          break;
+
+        case "ENTER_ALIGHTING_CODE":
+          input = req.body.ALIGHTING_CODE;
+          console.log("📥 ALIGHTING_CODE input:", input);
           break;
 
         case "SELECT_TRAIN_ORIGIN":
-          const { TRAIN_REGION_ORIGIN, TRAIN_ORIGIN } = req.body;
-
-          // ✅ סדר חשוב! בדוק תחילה אם יש בחירת תחנה (TRAIN_ORIGIN)
-          // כי TRAIN_REGION_ORIGIN נשאר ב-body גם אחרי שבחרנו אזור
-          if (TRAIN_ORIGIN) {
-            // שלב 2: משתמש בחר תחנת מוצא
-            console.log(`✅ Handling TRAIN_ORIGIN selection: ${TRAIN_ORIGIN}`);
-            response = await IVRService.handleTrainOriginSelection(
-              ApiPhone,
-              TRAIN_ORIGIN
-            );
-          } else if (TRAIN_REGION_ORIGIN) {
-            // שלב 1: משתמש בחר אזור מוצא
-            console.log(
-              `✅ Handling TRAIN_REGION_ORIGIN: ${TRAIN_REGION_ORIGIN}`
-            );
-            response = await IVRService.handleTrainOriginRegionSelection(
-              ApiPhone,
-              TRAIN_REGION_ORIGIN
-            );
-          } else {
-            // אין קלט - בדוק מה להציג
-            if (!session.trainRegion) {
-              // אין אזור שמור - הצג רשימת אזורים
-              response = IVRService.getTrainRegionsList(ApiPhone, "origin");
-            } else {
-              // יש אזור שמור - הצג רשימת תחנות באזור
-              response = await IVRService.getTrainStationsByRegion(
-                ApiPhone,
-                session.trainRegion,
-                "origin"
-              );
-            }
-          }
+          // ✅ בשלב זה אנחנו מצפים לבחירת אזור
+          input = req.body.TRAIN_REGION_ORIGIN;
+          console.log("📥 TRAIN_REGION_ORIGIN input:", input);
           break;
 
-        // רכבת - בחירת אזור יעד
+        case "SELECT_TRAIN_ORIGIN_STOP":
+          // ✅ כאן אנחנו מצפים לבחירת תחנה ספציפית
+          input = req.body.TRAIN_ORIGIN;
+          console.log("📥 TRAIN_ORIGIN input:", input);
+          break;
+
         case "SELECT_TRAIN_DEST_REGION":
-          const { TRAIN_REGION_DEST } = req.body;
-          if (TRAIN_REGION_DEST) {
-            console.log(`✅ Handling TRAIN_REGION_DEST: ${TRAIN_REGION_DEST}`);
-            response = await IVRService.handleTrainDestRegionSelection(
-              ApiPhone,
-              TRAIN_REGION_DEST
-            );
-          } else {
-            response = IVRService.getTrainRegionsList(ApiPhone, "destination");
-          }
+          input = req.body.TRAIN_REGION_DEST;
+          console.log("📥 TRAIN_REGION_DEST input:", input);
           break;
 
-        // רכבת - תחנת יעד
         case "SELECT_TRAIN_DESTINATION":
-          const { TRAIN_DESTINATION } = req.body;
-
-          // ✅ בדוק תחילה אם יש בחירת תחנת יעד
-          if (TRAIN_DESTINATION) {
-            console.log(
-              `✅ Handling TRAIN_DESTINATION selection: ${TRAIN_DESTINATION}`
-            );
-            response = await IVRService.handleTrainDestinationSelection(
-              ApiPhone,
-              TRAIN_DESTINATION
-            );
-          } else {
-            // אין קלט - הצג תחנות באזור היעד
-            const destRegion = session.trainDestRegion;
-            if (!destRegion) {
-              response = "id_list_message=t-אירעה שגיאה\nhangup=yes";
-            } else {
-              response = await IVRService.getTrainStationsByRegion(
-                ApiPhone,
-                destRegion,
-                "destination"
-              );
-            }
-          }
-          break;
-        // אוטובוס - בחירת חברה
-        case "SELECT_AGENCY":
-          const { AGENCY, SELECT_AGENCY } = req.body;
-          const agencyValue = AGENCY || SELECT_AGENCY;
-
-          if (agencyValue) {
-            console.log(`✅ Handling AGENCY selection: ${agencyValue}`);
-            response = await IVRService.handleAgencySelection(
-              ApiPhone,
-              agencyValue
-            );
-          } else {
-            console.error(`❌ No AGENCY value received. Body:`, req.body);
-            response =
-              "id_list_message=t-לא התקבלה בחירה. אנא בחר חברה\nhangup=yes";
-          }
-          break;
-
-        // אוטובוס - בחירת כיוון
-        case "SELECT_DIRECTION":
-          const { DIRECTION } = req.body;
-          if (DIRECTION) {
-            console.log(`✅ Handling DIRECTION selection: ${DIRECTION}`);
-            const directionValue = Array.isArray(DIRECTION)
-              ? DIRECTION[0]
-              : DIRECTION;
-            response = await IVRService.handleDirectionSelection(
-              ApiPhone,
-              directionValue
-            );
-          } else {
-            response =
-              "id_list_message=t-לא התקבלה בחירה. אנא בחר כיוון\nhangup=yes";
-          }
-          break;
-
-        // בחירת שיטת הזנת תחנות
-        case "SELECT_STOP_METHOD":
-          const { STOP_METHOD } = req.body;
-          if (STOP_METHOD) {
-            console.log(`✅ Handling STOP_METHOD selection: ${STOP_METHOD}`);
-            response = await IVRService.handleStopMethodSelection(
-              ApiPhone,
-              STOP_METHOD
-            );
-          } else {
-            response = "id_list_message=t-לא התקבלה בחירה\nhangup=yes";
-          }
-          break;
-
-        // הקשת מספר תחנת עלייה
-        case "ENTER_BOARDING_CODE":
-          const { BOARDING_CODE } = req.body;
-          if (BOARDING_CODE) {
-            console.log(`✅ Handling BOARDING_CODE entry: ${BOARDING_CODE}`);
-            response = await IVRService.handleBoardingCodeEntry(
-              ApiPhone,
-              BOARDING_CODE
-            );
-          } else {
-            response = "id_list_message=t-לא הוקש מספר תחנה\nhangup=yes";
-          }
-          break;
-
-        // הקשת מספר תחנת ירידה
-        case "ENTER_ALIGHTING_CODE":
-          const { ALIGHTING_CODE } = req.body;
-          if (ALIGHTING_CODE) {
-            console.log(`✅ Handling ALIGHTING_CODE entry: ${ALIGHTING_CODE}`);
-            response = await IVRService.handleAlightingCodeEntry(
-              ApiPhone,
-              ALIGHTING_CODE
-            );
-          } else {
-            response = "id_list_message=t-לא הוקש מספר תחנה\nhangup=yes";
-          }
+          input = req.body.TRAIN_DESTINATION;
+          console.log("📥 TRAIN_DESTINATION input:", input);
           break;
 
         default:
-          console.log(`⚠️ Unknown step: ${session.step}, restarting`);
-          response = await IVRService.handleStart(ApiPhone);
+          console.warn(`⚠️ Unknown step: ${session.step}`);
+          input = undefined;
       }
 
-      console.log(`📤 Response (${response.length} chars):\n${response}`);
-      console.log(
-        "============================================================"
-      );
+      // ✅ קריאה ל-FSM המרכזי
+      const { nextStep } = await IVRService.handleInput(ApiPhone, input);
 
+      console.log(`✅ Sending response (first 150 chars): ${nextStep.substring(0, 150)}...`);
+
+      // שלח תגובה
       res
         .status(200)
         .set("Content-Type", "text/plain; charset=utf-8")
-        .send(response);
+        .send(nextStep);
+
     } catch (error) {
       console.error("❌ Error in IVR handler:", error);
       res
@@ -251,4 +134,55 @@ if (suspiciousArrays.length > 0) {
         .send("id_list_message=t-אירעה שגיאה במערכת\nhangup=yes");
     }
   }
+
+  /**
+   * ✅ אופציונלי: endpoint לבדיקת session
+   */
+  static async getSession(req: Request, res: Response) {
+    try {
+      const { phone } = req.params;
+      
+      if (!phone) {
+        return res.status(400).json({ error: "Phone number required" });
+      }
+
+      const session = IVRService.getOrCreateSession(phone);
+      
+      res.json({
+        phone: session.phone,
+        step: session.step,
+        transportType: session.transportType,
+        lineNumber: session.lineNumber,
+        agencyName: session.agencyName
+      });
+    } catch (error) {
+      console.error("Error getting session:", error);
+      res.status(500).json({ error: "Failed to get session" });
+    }
+  }
+
+  /**
+   * ✅ אופציונלי: endpoint לניקוי session
+   */
+  static async clearSession(req: Request, res: Response) {
+    try {
+      const { phone } = req.params;
+      
+      if (!phone) {
+        return res.status(400).json({ error: "Phone number required" });
+      }
+
+      IVRService.clearSession(phone);
+      
+      res.json({ 
+        success: true, 
+        message: `Session cleared for ${phone}` 
+      });
+    } catch (error) {
+      console.error("Error clearing session:", error);
+      res.status(500).json({ error: "Failed to clear session" });
+    }
+  }
+
+  
 }

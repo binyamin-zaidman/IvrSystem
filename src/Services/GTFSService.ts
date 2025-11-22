@@ -761,25 +761,25 @@ export class GTFSService {
         "To:",
         params.destinationStopId
       );
-
+//HIDE FOR enable start trip without cheking trips
       // 🚀 Query מאופטם - מחזיר רק trips שעוברים בשתי התחנות
-      const { data: validTrips, error: tripsError } = await supabase.rpc(
-        "find_train_trip_between_stops",
-        {
-          p_origin_stop: params.originStopId,
-          p_dest_stop: params.destinationStopId,
-          p_agency: params.agencyId
-        }
-      );
+      // const { data: validTrips, error: tripsError } = await supabase.rpc(
+      //   "find_train_trip_between_stops",
+      //   {
+      //     p_origin_stop: params.originStopId,
+      //     p_dest_stop: params.destinationStopId,
+      //     p_agency: params.agencyId
+      //   }
+      // );
 
-      console.log("RPC result:", { validTrips, tripsError });
-      if (tripsError || !validTrips || validTrips.length === 0) {
-        console.log("❌ No trips found via RPC, trying fallback method");
-        return await this.createTrainTripFallback(params);
-      }
+      // console.log("RPC result:", { validTrips, tripsError });
+      // if (tripsError || !validTrips || validTrips.length === 0) {
+      //   console.log("❌ No trips found via RPC, trying fallback method");
+      //   return await this.createTrainTripFallback(params);
+      // }
 
-      const selectedTrip = validTrips[0];
-      console.log("✅ Found trip:", selectedTrip.trip_id);
+      // const selectedTrip = validTrips[0];
+      // console.log("✅ Found trip:", selectedTrip.trip_id);
 
       // קבל מידע תחנות
       const { data: stops, error: stopsError } = await supabase
@@ -807,15 +807,15 @@ export class GTFSService {
       let price = 0;
 
       if (distance <= 15) {
-        price = 11.5;
+        price = 11.50;
       } else if (distance <= 40) {
         price = 21;
       } else if (distance <= 75) {
         price = 27;
       } else if (distance <= 120) {
-        price = 30.5;
+        price = 30.50;
       } else if (distance <= 225) {
-        price = 52.5;
+        price = 52.50;
       } else {
         // מרחק גדול יותר – אפשר לקבוע מחיר ברירת מחדל
         price = 60; // לדוגמה
@@ -830,7 +830,6 @@ export class GTFSService {
         .from("rides")
         .insert({
           user_id: params.userId,
-          trip_id: selectedTrip.trip_id,
           direction_id: 0,
           start_stop_id: params.originStopId,
           end_stop_id: params.destinationStopId,
@@ -843,7 +842,6 @@ export class GTFSService {
             lon: parseFloat(destination.stop_lon)
           },
           agency_id: params.agencyId,
-          line_number: "רכבת",
           bus_code: "TRAIN",
           start_time: new Date(),
           amount: price,
@@ -1062,46 +1060,15 @@ export class GTFSService {
     try {
       // Query מאופטם שמחזיר רק תחנות של רכבת ישראל
       const { data: trainStops, error } = await supabase
-        .from("stop_times")
-        .select(
-          `
-          stops!inner(
-            stop_id,
-            stop_name
-          ),
-          trips!inner(
-            routes!inner(
-              agency_id
-            )
-          )
-        `
-        )
-        .eq("trips.routes.agency_id", "2")
-        .limit(1000);
-
+ .from("train_stations")  // ✅ פשוט וישיר!
+      .select("stop_id, stop_name")
+      .order("stop_name");
       if (error || !trainStops) {
         console.error("Error fetching train stations:", error);
         return [];
       }
 
-      // הסר כפילויות
-      const uniqueStops = new Map<string, string>();
-      trainStops.forEach((item) => {
-        const stop = Array.isArray(item.stops) ? item.stops[0] : item.stops;
-        if (stop && stop.stop_id) {
-          uniqueStops.set(stop.stop_id, stop.stop_name);
-        }
-      });
-
-      const result = Array.from(uniqueStops.entries()).map(
-        ([stop_id, stop_name]) => ({
-          stop_id,
-          stop_name
-        })
-      );
-
-      console.log(`✅ Found ${result.length} unique train stations`);
-      return result;
+      return trainStops;
     } catch (error) {
       console.error("Exception in getTrainStations:", error);
       return [];
