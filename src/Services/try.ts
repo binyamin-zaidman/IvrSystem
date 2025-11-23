@@ -362,7 +362,7 @@ export class IVRService {
       });
 
       const varName = type === "origin" ? "TRAIN_ORIGIN" : "TRAIN_DESTINATION";
-      return `read=${message}=${varName},yes,2,1,30,Digits,no,no`;
+      return `read=${message}=${varName},no,2,1,30,Digits,no,no`;
     } catch (error) {
       console.error("❌ Error getting regional stations:", error);
       return "id_list_message=t-אירעה שגיאה\nhangup=yes";
@@ -566,6 +566,7 @@ export class IVRService {
         session.lineAttempts++;
         return "read=t-מצטערים קו זה לא נמצא במערכת אנא הקש את מספר הקו=LINE,no,3,1,30,Digits,no,no";
       
+
       }
 
       session.lineAttempts = 0;
