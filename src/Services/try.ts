@@ -256,7 +256,7 @@ export class IVRService {
     this.getOrCreateSession(phone);
     this.updateSession(phone, { step: "SELECT_TRANSPORT_TYPE" });
     const message = `t-לנסיעה באוטובוס הקש 1, לנסיעה ברכבת הקש 2`;
-    return `read=${message}=TRANSPORT_TYPE,yes,1,1,30,Digits,no,no`;
+    return `read=${message}=TRANSPORT_TYPE,yes,1,1,30,Digits,no,no,,1.2`;
   }
 
   // ================== TRANSPORT TYPE ==================
@@ -284,7 +284,7 @@ export class IVRService {
       return await this.getTrainRegionsList(phone, "origin");
     }
     console.warn(`⚠️ Invalid transport type: ${type}`);
-    return `read=t-ניתן לבחור נסיעה באוטובס או ברכבת.t-הקש 1 לאוטובוס.t-הקש 2 לרכבת=TRANSPORT_TYPE,yes,1,1,30,Digits,no,no`;
+    return `read=t-ניתן לבחור נסיעה באוטובס או ברכבת.t-הקש 1 לאוטובוס.t-הקש 2 לרכבת=TRANSPORT_TYPE,yes,1,1,30,Digits,no,no,1.2`;
   }
 
   // ================== TRAIN - אזורים ==================
@@ -301,7 +301,7 @@ export class IVRService {
     message += ".t-באזור הצפון הקש 4";
     const varName =
       type === "origin" ? "TRAIN_REGION_ORIGIN" : "TRAIN_REGION_DEST";
-    return `read=${message}=${varName},yes,1,1,30,Digits,no,no`;
+    return `read=${message}=${varName},yes,1,1,30,Digits,no,no,,1.2.3.4`;
   }
 
   static async handleTrainOriginRegionSelection(
@@ -562,16 +562,10 @@ export class IVRService {
     try {
       const agencies = await GTFSService.getLineBusAgencies(cleanedLine);
 
-      if (agencies.length === 0) {
+      if (agencies.length === 0|| !agencies) {
         session.lineAttempts++;
-
-        if (session.lineAttempts >= 2) {
-          console.warn(`⚠️ Max attempts reached (${session.lineAttempts})`);
-          this.clearSession(phone);
-          return "id_list_message=t-מצטערים לא הצלחנו לאתר את הקו המבוקש\nhangup=yes";
-        }
-
-        return "read=t-מצטערים קו זה לא נמצא במערכת אנא הקש את מספר הקו=LINE,yes,3,1,30,Digits,no,no";
+        return "read=t-מצטערים קו זה לא נמצא במערכת אנא הקש את מספר הקו=LINE,no,3,1,30,Digits,no,no";
+      
       }
 
       session.lineAttempts = 0;
