@@ -320,7 +320,6 @@ export class GTFSService {
         boardingStopName: ivrData.spokenBoardingStop,
         alightingStopName: ivrData.spokenAlightingStop
       });
-
       return {
         success: true,
         message: `נסיעה נוצרה בהצלחה מ${result.boardingStop.stop_name} ל${result.alightingStop.stop_name}`,
@@ -431,53 +430,59 @@ export class GTFSService {
    * בדיקה אם תחנה נמצאת על מסלול מסוים
    * מחזיר גם את stop_sequence כדי לוודא סדר תחנות
    */
-  static async isStopOnRoute(
-    stopId: string,
-    routeId: string,
-    directionId: number,
-    agencyId: string
-  ): Promise<{
-    isOnRoute: boolean;
-    stopSequence?: number;
-  }> {
-    try {
-      // שים לב: אנחנו עושים join ל-trips כדי לסנן לפי route_id ו-direction_id
-      // agency_id לא נמצא ב-trips, אז אנחנו לא משתמשים בו כאן
-      const { data, error } = await supabase
-        .from("stop_times")
-        .select(
-          `
-        stop_sequence,
-        trips!inner (
-          trip_id,
-          route_id,
-          direction_id
-        )
-      `
-        )
-        .eq("stop_id", stopId)
-        .eq("trips.route_id", routeId)
-        .eq("trips.direction_id", directionId)
-        .limit(1);
+static async isStopOnRoute(
+  stopId: string,
+  routeId: string,
+  directionId: number,
+  agencyId: string
+): Promise<{
+  isOnRoute: boolean;
+  stopSequence?: number;
+}> {
+  try {
+    console.log(`🔍 Checking if stop ${stopId} is on route ${routeId}, direction ${directionId}`);
 
-      if (error) {
-        console.error("Error in isStopOnRoute:", error);
-        return { isOnRoute: false };
-      }
+    // שלב 1: קבל trip_id מייצג מהרוט והכיוון
+    const { data: tripData, error: tripError } = await supabase
+      .from("trips")
+      .select("trip_id")
+      .eq("route_id", routeId)
+      .eq("direction_id", directionId)
+      .limit(1)
+      .single();
 
-      if (!data || data.length === 0) {
-        return { isOnRoute: false };
-      }
-
-      return {
-        isOnRoute: true,
-        stopSequence: data[0].stop_sequence
-      };
-    } catch (error) {
-      console.error("Error checking if stop is on route:", error);
+    if (tripError || !tripData) {
+      console.error("❌ No trip found for route");
       return { isOnRoute: false };
     }
+
+    console.log(`✅ Found trip: ${tripData.trip_id}`);
+
+    // שלב 2: בדוק אם התחנה נמצאת בטריפ הזה (פשוט מאוד!)
+    const { data: stopTime, error: stopError } = await supabase
+      .from("stop_times")
+      .select("stop_sequence")
+      .eq("trip_id", tripData.trip_id)
+      .eq("stop_id", stopId)
+      .limit(1)
+      .single();
+
+    if (stopError || !stopTime) {
+      console.log(`❌ Stop ${stopId} not found on this route`);
+      return { isOnRoute: false };
+    }
+
+    console.log(`✅ Stop found at sequence: ${stopTime.stop_sequence}`);
+    return {
+      isOnRoute: true,
+      stopSequence: stopTime.stop_sequence
+    };
+
+  } catch (error) {
+    console.error("❌ Error in isStopOnRoute:", error);
+    return { isOnRoute: false };
   }
+}
 
   /**
    * קבלת תחנה ראשונה ואחרונה של מסלול
@@ -710,7 +715,6 @@ export class GTFSService {
 
       // השתמש ב-TripService.createTrip שכבר קיים
       const createdTrip = await TripService.createTrip(tripRequest);
-
       return {
         success: true,
         tripId: createdTrip.id,

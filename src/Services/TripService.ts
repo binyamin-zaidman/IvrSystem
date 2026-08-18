@@ -44,7 +44,7 @@ export class TripService {
         console.warn("Error calculating fare, using default:", fareError);
       }
 
-      // מצא trip_id אמיתי מהדאטהבייס
+      // מצא trip_id  מהדאטהבייס
       const { data: existingTrip, error: tripError } = await supabase
         .from("trips")
         .select("trip_id")

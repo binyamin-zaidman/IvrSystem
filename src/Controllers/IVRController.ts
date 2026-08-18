@@ -37,13 +37,30 @@ export class IVRController {
         return res
           .status(200)
           .set("Content-Type", "text/plain; charset=utf-8")
-          .send("id_list_message=t-יש מערך של נתונים \nhangup=yes");
+          .send("id_list_message=t-בעיה בנתונים אנא התחל מחדש\nhangup=yes");
       }
 
       // קבל session קיים
       const session = IVRService.getOrCreateSession(ApiPhone);
       console.log(`📊 Current session step: ${session.step}`);
 
+      // ✅ בדיקה אם זו קריאה חדשה לגמרי (אין שום input)
+      const hasAnyInput = Object.keys(req.body).some(key => 
+        key !== 'ApiCallId' && 
+        key !== 'ApiYFCallId' && 
+        key !== 'ApiDID' && 
+        key !== 'ApiRealDID' && 
+        key !== 'ApiPhone' && 
+        key !== 'ApiExtension' && 
+        key !== 'ApiEnterID' && 
+        key !== 'ApiTime'
+      );
+
+      // ✅ אם זו קריאה חדשה ללא input והסשן לא ב-START - נקה אותו
+      if (!hasAnyInput && session.step !== 'START') {
+        console.log(`🔄 New call detected but session exists - clearing old session`);
+        IVRService.clearSession(ApiPhone);
+      }
       // ✅ נחלץ הקלט המתאים לפי שלב CURRENT
       let input: string | string[] | undefined;
     
@@ -119,7 +136,6 @@ export class IVRController {
       const { nextStep } = await IVRService.handleInput(ApiPhone, input);
 
       console.log(`✅ Sending response (first 150 chars): ${nextStep.substring(0, 150)}...`);
-
       // שלח תגובה
       res
         .status(200)
@@ -132,6 +148,17 @@ export class IVRController {
         .status(200)
         .set("Content-Type", "text/plain; charset=utf-8")
         .send("id_list_message=t-אירעה שגיאה במערכת\nhangup=yes");
+    }
+  }
+
+  static async getUserPay(req: Request, res: Response) {
+    try {
+      const { ApiPhone } = req.body;
+      const rideConfiram = await IVRService.handleGetUserConfirmation(ApiPhone);
+      res.status(200).set("Content-Type", "text/plain; charset=utf-8").send(rideConfiram + "\nhangup=yes");
+    } catch (error) {
+      console.error("Error getting user:", error);
+      res.status(500).json({ error: "Failed to get user" });
     }
   }
 

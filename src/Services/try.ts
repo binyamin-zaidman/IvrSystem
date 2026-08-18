@@ -892,10 +892,11 @@ export class IVRService {
         return "read=t-תחנה זו אינה על המסלול אנא הקש מספר תחנה אחר=BOARDING_CODE,yes,5,1,30,Digits,no,no";
       }
 
-      this.updateSession(phone, {
-        boardingStop: stop.stop_id,
-        step: "ENTER_ALIGHTING_CODE"
-      });
+      this.clearSession(phone);
+      // this.updateSession(phone, {
+      //   boardingStop: stop.stop_id,
+      //   step: "ENTER_ALIGHTING_CODE"
+      // });
 
       const message =
         `t-נבחרה תחנת עלייה ${cleanTextForIVR(stop.stop_name, 20)}` +
@@ -962,19 +963,19 @@ export class IVRService {
         alightingStopId: stop.stop_id
       });
 
-      this.clearSession(phone);
-
+      
       if (result.success) {
         const boardingName =
-          typeof session.boardingStop === "string"
-            ? session.boardingStop
+        typeof session.boardingStop === "string"
+        ? session.boardingStop
             : session.boardingStop.stop_name;
 
-        const confirmCode = extractDigits(result.confirmationCode || "");
+            const confirmCode = extractDigits(result.confirmationCode || "");
         const priceText = priceToWords(result.price);
         const fromStop = cleanTextForIVR(boardingName, 30);
         const toStop = cleanTextForIVR(stop.stop_name, 30);
-
+        
+        this.clearSession(phone);
         return (
           `id_list_message=t-נסיעה נוצרה בהצלחה` +
           `.t-קו ${session.lineNumber}` +
@@ -992,7 +993,32 @@ export class IVRService {
       return "id_list_message=t-אירעה שגיאה\nhangup=yes";
     }
   }
+  static async handleGetUserConfirmation(phone: string): Promise<any> {
+    try {
+        const user_id = await UserService.getUserByPhone(phone);  
+        const ride = await UserService.getUserActiveRide(user_id?.id);
+        if (!ride) {
+      return "id_list_message=t-לא נמצאה נסיעה פעילה\nhangup=yes";
+    }
+    const confirmCode = extractDigits(ride.confirmation_code);
+    const minutesLeft = Math.floor(
+      (new Date(ride.expires_at).getTime() - Date.now()) / (1000 * 60)
+    );
+    console.log({ride});
+         return (
+      `id_list_message=t-פרטי הנסיעה שלך` +
+      `.t-קו ${ride.line_number}` +
+      `.t-קוד אישור ${confirmCode}` +
+      `.t-תוקף ${minutesLeft} דקות` +
+      `\nhangup=yes`
+    );
+    
 
+    } catch (error) {
+      console.error("Error in handleGetUserConfirmation:", error);
+      return "id_list_message=t-לא נמצא נסיעה בתוקף\nhangup=yes";
+    }
+  }
   
 
   // ================== סיום שיחה ==================

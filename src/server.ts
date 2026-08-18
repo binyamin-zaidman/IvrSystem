@@ -17,7 +17,6 @@ app.use(bodyParser.json());
 
 // Logging middleware
 app.use((req, res, next) => {
-  console.log("Body:", req.body);
   console.log("============================================================");
   next();
 });
