@@ -1,57 +1,31 @@
-import express from "express";
-import bodyParser from "body-parser";
-import * as dotenv from "dotenv";
-dotenv.config({ path: __dirname + "/.env" });
+import app from "./app";
 
-import authRoutes from "./Routes/Api/auth";
-import userRoutes from "./Routes/Api/users";
-import tripRoutes from "./Routes/Api/trips";
-import paymentRoutes from "./Routes/Api/payments";
-import gtfsRoutes from "./Routes/Api/gtfs";
-import ivrRoutes from "./Routes/Ivr/ivrRoutes";
+const port = Number(process.env.PORT ?? 3000);
 
-const app = express();
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(bodyParser.json());
+if (!Number.isInteger(port) || port < 1 || port > 65535) {
+  throw new Error("PORT must be a valid port number");
+}
 
-// Logging middleware
-app.use((req, res, next) => {
-  console.log("============================================================");
-  next();
+const server = app.listen(port, () => {
+  console.log(`Server listening on port ${port}`);
 });
 
-// API routes
-app.get("/", (req, res) => res.send("Hello World!"));
-app.use("/api/auth", authRoutes);
-app.use("/api/users", userRoutes);
-app.use("/api/trips", tripRoutes);
-app.use("/api/gtfs", gtfsRoutes);
-app.use("/api/payments", paymentRoutes);
-
-// IVR routes
-app.use("/ivr", ivrRoutes);
-
-// Health check
-app.get("/health", (req, res) => {
-  res.json({ status: "ok", timestamp: new Date().toISOString() });
+server.on("error", (error) => {
+  console.error("Failed to start server:", error);
+  process.exit(1);
 });
 
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({ error: "Route not found" });
-});
+function shutdown(signal: string) {
+  console.log(`${signal} received; shutting down`);
 
-// Error handler
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  console.error("❌ Server Error:", err);
-  res.status(500).json({ error: "Internal server error" });
-});
+  server.close((error) => {
+    if (error) {
+      console.error("Error while closing server:", error);
+      process.exitCode = 1;
+    }
+    process.exit();
+  });
+}
 
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🚍 Server running on port ${PORT}`);
-});
-
-
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
