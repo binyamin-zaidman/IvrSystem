@@ -11,6 +11,9 @@ export const validateBody = <T>(schema: ZodType<T>) => {
             return next();
         }
 
-        return next(new Error("Validation schema failed", result.error));
+        res.status(400).json({
+            error: "Validation failed",
+            details: treeifyError(result.error)
+        });
     };
 };
