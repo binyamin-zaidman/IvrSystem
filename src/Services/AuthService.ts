@@ -1,6 +1,9 @@
 export class AuthService {
-  static async registerUser() {
+  static async registerUser(user:any) {
     // TODO: implement registration logic
+    return user;
+
+   
   }
 
   static async loginUser() {
